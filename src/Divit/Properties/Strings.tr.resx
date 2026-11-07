@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="SeriesRangeEmpty" xml:space="preserve">
+    <value>Seri aralığı boş: {0}–{1}. satırlar.</value>
+  </data>
+  <data name="ImageNotPng" xml:space="preserve">
+    <value>Resim PNG değil.</value>
+  </data>
+  <data name="MergeRangeReversed" xml:space="preserve">
+    <value>Birleştirme aralığı ters: sol üst hücre sağ alttan sonra geliyor.</value>
+  </data>
+  <data name="CellOutOfRange" xml:space="preserve">
+    <value>Hücre Excel sınırlarının dışında: satır {0}, sütun {1}.</value>
+  </data>
+  <data name="SheetNameLength" xml:space="preserve">
+    <value>Sayfa adı 1–31 karakter olmalı: &quot;{0}&quot;.</value>
+  </data>
+  <data name="SheetNameCharacters" xml:space="preserve">
+    <value>Sayfa adında : \ / ? * [ ] olamaz, kesme işaretiyle başlayıp bitemez: &quot;{0}&quot;.</value>
+  </data>
+  <data name="SheetNameDuplicate" xml:space="preserve">
+    <value>Bu adla bir sayfa zaten var: &quot;{0}&quot;.</value>
+  </data>
+  <data name="WorkbookEmpty" xml:space="preserve">
+    <value>Kitapta sayfa yok; Excel sayfasız kitabı açmaz.</value>
+  </data>
+  <data name="ColorInvalid" xml:space="preserve">
+    <value>Renk #RRGGBB olmalı: &quot;{0}&quot;.</value>
+  </data>
+</root>

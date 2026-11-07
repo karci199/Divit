@@ -1,0 +1,9 @@
+# Build output
+bin/
+obj/
+*.user
+.vs/
+
+# Files produced by the tests (sample gallery, temporary output)
+artifacts/
+TestResults/

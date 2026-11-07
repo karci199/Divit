@@ -1,0 +1,78 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,xml,csproj,props,targets,config,manifest,resx}]
+indent_size = 2
+
+[*.{md,html,css,js}]
+indent_size = 2
+
+# C# and resx files keep a BOM: without one some Windows tools fall back to the ANSI code page and break non-ASCII
+# text such as the Turkish resources.
+[*.{cs,resx}]
+charset = utf-8-bom
+
+[*.cs]
+# Formatting
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_space_after_cast = false
+csharp_preserve_single_line_blocks = false
+csharp_preserve_single_line_statements = false
+
+# Usings sit inside the namespace, System is not sorted first: the project puts its own
+# namespaces above System so a screen's dependencies read before the framework's.
+csharp_using_directive_placement = inside_namespace:warning
+dotnet_sort_system_directives_first = false
+dotnet_separate_import_directive_groups = false
+
+# Language style
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = true:warning
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+csharp_style_expression_bodied_methods = false:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_readonly_field = true:warning
+dotnet_style_prefer_conditional_expression_over_assignment = false:silent
+dotnet_style_prefer_conditional_expression_over_return = false:silent
+
+# Naming: private fields are _camelCase, everything else PascalCase, parameters camelCase.
+dotnet_naming_style.pascal.capitalization = pascal_case
+dotnet_naming_style.camel.capitalization = camel_case
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+dotnet_naming_style.underscore_camel.required_prefix = _
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel
+dotnet_naming_rule.private_fields_underscore.severity = suggestion
+
+dotnet_naming_symbols.parameters.applicable_kinds = parameter
+dotnet_naming_rule.parameters_camel.symbols = parameters
+dotnet_naming_rule.parameters_camel.style = camel
+dotnet_naming_rule.parameters_camel.severity = warning
+
+dotnet_naming_symbols.members.applicable_kinds = class,struct,interface,enum,property,method,event,namespace
+dotnet_naming_rule.members_pascal.symbols = members
+dotnet_naming_rule.members_pascal.style = pascal
+dotnet_naming_rule.members_pascal.severity = warning
+
+# Designer output is generated: it does not follow the rules above and must not be reformatted.
+[*.Designer.cs]
+generated_code = true
+dotnet_analyzer_diagnostic.severity = none
