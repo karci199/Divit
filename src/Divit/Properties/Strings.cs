@@ -35,6 +35,13 @@ internal static class Strings
     internal const string ListTooLong = nameof(ListTooLong);
     internal const string ValidationTextTooLong = nameof(ValidationTextTooLong);
     internal const string FormulaLength = nameof(FormulaLength);
+    internal const string TableNeedsData = nameof(TableNeedsData);
+    internal const string TablesOverlap = nameof(TablesOverlap);
+    internal const string TableStyleUnknown = nameof(TableStyleUnknown);
+    internal const string TableColumnOutOfRange = nameof(TableColumnOutOfRange);
+    internal const string TableNameDuplicate = nameof(TableNameDuplicate);
+    internal const string TableOverlapsMerge = nameof(TableOverlapsMerge);
+    internal const string TableOverlapsFilter = nameof(TableOverlapsFilter);
 }
 
 /// <summary>

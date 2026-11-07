@@ -81,4 +81,25 @@
   <data name="FormulaLength" xml:space="preserve">
     <value>Formül 1–8192 karakter olmalı.</value>
   </data>
+  <data name="TableNeedsData" xml:space="preserve">
+    <value>Tablonun bir başlık satırı ve en az bir veri satırı olmalı.</value>
+  </data>
+  <data name="TablesOverlap" xml:space="preserve">
+    <value>&quot;{0}&quot; tablosu &quot;{1}&quot; tablosuyla çakışıyor.</value>
+  </data>
+  <data name="TableStyleUnknown" xml:space="preserve">
+    <value>Excel tablo stillerinden biri değil: &quot;{0}&quot;. TableStyleLight1–21, TableStyleMedium1–28 ya da TableStyleDark1–11 kullanın.</value>
+  </data>
+  <data name="TableColumnOutOfRange" xml:space="preserve">
+    <value>{0}. sütun &quot;{1}&quot; tablosunun dışında.</value>
+  </data>
+  <data name="TableNameDuplicate" xml:space="preserve">
+    <value>Bu adla bir tablo ya da ad zaten var: &quot;{0}&quot;.</value>
+  </data>
+  <data name="TableOverlapsMerge" xml:space="preserve">
+    <value>&quot;{0}&quot; tablosunda birleştirilmiş hücre var; Excel tablolarda buna izin vermez.</value>
+  </data>
+  <data name="TableOverlapsFilter" xml:space="preserve">
+    <value>&quot;{0}&quot; tablosu sayfanın otomatik filtresiyle çakışıyor; tablo kendi filtresini getirir.</value>
+  </data>
 </root>

@@ -192,12 +192,24 @@ public sealed partial class XlsxWorkbook
             w.WriteStartElement("sheetProtection", MainNs);
             if (sheet.Password != null && sheet.Password.Length > 0)
             {
-                w.WriteAttributeString("password", PasswordHash(sheet.Password));
+                var salt = PasswordHash.Salt(Created == null ? null : "Divit|sheet|" + sheet.Name + "|" + Created.Value.Ticks.ToString(CultureInfo.InvariantCulture));
+                w.WriteAttributeString("algorithmName", PasswordHash.Algorithm);
+                w.WriteAttributeString("hashValue", PasswordHash.Sha512(sheet.Password, salt));
+                w.WriteAttributeString("saltValue", Convert.ToBase64String(salt));
+                w.WriteAttributeString("spinCount", Int(PasswordHash.SpinCount));
             }
 
             w.WriteAttributeString("sheet", "1");
             w.WriteAttributeString("objects", "1");
             w.WriteAttributeString("scenarios", "1");
+
+            // These attributes say what is locked: "0" allows the action.
+            var allowed = sheet.Allowed;
+            foreach (var (flag, name) in AllowAttributes)
+            {
+                if ((allowed & flag) != 0) { w.WriteAttributeString(name, "0"); }
+            }
+
             w.WriteEndElement();
         }
 
@@ -348,8 +360,41 @@ public sealed partial class XlsxWorkbook
             w.WriteEndElement();
         }
 
+        // Tables come last in the worksheet.
+        if (plan.TableIds.Count > 0)
+        {
+            w.WriteStartElement("tableParts", MainNs);
+            w.WriteAttributeString("count", Int(plan.TableIds.Count));
+            foreach (var id in plan.TableIds)
+            {
+                w.WriteStartElement("tablePart", MainNs);
+                w.WriteAttributeString("id", RelNs, id);
+                w.WriteEndElement();
+            }
+
+            w.WriteEndElement();
+        }
+
         w.WriteEndElement();
     }
+
+    /// <summary>
+    /// The sheetProtection attribute of each permission.
+    /// </summary>
+    private static readonly (XlsxAllow Flag, string Name)[] AllowAttributes =
+    {
+        (XlsxAllow.FormatCells, "formatCells"),
+        (XlsxAllow.FormatColumns, "formatColumns"),
+        (XlsxAllow.FormatRows, "formatRows"),
+        (XlsxAllow.InsertColumns, "insertColumns"),
+        (XlsxAllow.InsertRows, "insertRows"),
+        (XlsxAllow.InsertHyperlinks, "insertHyperlinks"),
+        (XlsxAllow.DeleteColumns, "deleteColumns"),
+        (XlsxAllow.DeleteRows, "deleteRows"),
+        (XlsxAllow.Sort, "sort"),
+        (XlsxAllow.AutoFilter, "autoFilter"),
+        (XlsxAllow.PivotTables, "pivotTables"),
+    };
 
     /// <summary>
     /// A range address; one cell when both corners are the same.
@@ -663,6 +708,13 @@ public sealed partial class XlsxWorkbook
             w.WriteAttributeString("t", "s");
             w.WriteStartElement("v", MainNs);
             w.WriteChars(buffer, 0, OfficeText.FormatInt(buffer, 0, strings.Index(text)));
+            w.WriteEndElement();
+        }
+        else if (cell.Value is XlsxRichText rich)
+        {
+            w.WriteAttributeString("t", "s");
+            w.WriteStartElement("v", MainNs);
+            w.WriteChars(buffer, 0, OfficeText.FormatInt(buffer, 0, strings.Index(rich)));
             w.WriteEndElement();
         }
         else if (cell.Value is bool flag)

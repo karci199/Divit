@@ -20,7 +20,12 @@ public sealed partial class XlsxWorkbook
     {
         private readonly XlsxWorkbook _book;
         private readonly Dictionary<XlsxStyle, int> _xfIndex = new Dictionary<XlsxStyle, int>();
-        private readonly List<(int Font, int Fill, int Border, int NumFmt, XlsxStyle Style)> _xfs = new List<(int, int, int, int, XlsxStyle)>();
+        private readonly List<(int Font, int Fill, int Border, int NumFmt, int XfId, XlsxStyle Style)> _xfs = new List<(int, int, int, int, int, XlsxStyle)>();
+
+        /// <summary>
+        /// Named styles (cellStyleXfs): Normal first, then each built-in style when a cell first uses it.
+        /// </summary>
+        private readonly List<(XlsxCellStyle Style, int Font, int Fill, int Border)> _named = new List<(XlsxCellStyle, int, int, int)>();
         private readonly List<string> _fonts = new List<string>();
         private readonly List<string> _fills = new List<string>();
         private readonly List<string> _borders = new List<string>();
@@ -48,13 +53,14 @@ public sealed partial class XlsxWorkbook
             _fills.Add("gray125");
             _borders.Add(BorderKey(default(XlsxStyle)));
             _xfIndex[default(XlsxStyle)] = 0;
-            _xfs.Add((0, 0, 0, 0, default(XlsxStyle)));
+            _xfs.Add((0, 0, 0, 0, 0, default(XlsxStyle)));
+            _named.Add((XlsxCellStyle.Normal, 0, 0, 0));
         }
 
-        public int Index(XlsxStyle style)
+        public int Index(in XlsxStyle style)
         {
             // Neighbouring cells usually share a style; comparing with the last one is cheaper than hashing every string.
-            if (style.Equals(_last))
+            if (XlsxStyle.Same(in style, in _last))
             {
                 return _lastIndex;
             }
@@ -71,9 +77,26 @@ public sealed partial class XlsxWorkbook
             var border = Add(_borders, BorderKey(style));
             var numFmt = style.NumberFormat == null ? 0 : 164 + Add(_numFmts, style.NumberFormat);
             i = _xfs.Count;
-            _xfs.Add((font, fill, border, numFmt, style));
+            _xfs.Add((font, fill, border, numFmt, Named(style.CellStyle), style));
             _xfIndex[style] = i;
             _lastIndex = i;
+            return i;
+        }
+
+        /// <summary>
+        /// The cellStyleXfs record of a built-in style, added with its own font, fill and border on first use.
+        /// </summary>
+        private int Named(XlsxCellStyle cellStyle)
+        {
+            var i = _named.FindIndex(n => n.Style == cellStyle);
+            if (i < 0)
+            {
+                var look = XlsxCellStyles.Look(cellStyle);
+                var fill = look.Fill == null ? 0 : Add(_fills, "solid:" + Argb(look.Fill));
+                i = _named.Count;
+                _named.Add((cellStyle, Add(_fonts, FontKey(look)), fill, Add(_borders, BorderKey(look))));
+            }
+
             return i;
         }
 
@@ -183,11 +206,19 @@ public sealed partial class XlsxWorkbook
 
             w.WriteEndElement();
 
+            // The named styles: Normal, then the built-in ones in use. A cell record names its style with xfId.
             w.WriteStartElement("cellStyleXfs", MainNs);
-            w.WriteAttributeString("count", "1");
-            w.WriteStartElement("xf", MainNs);
-            w.WriteAttributeString("numFmtId", "0"); w.WriteAttributeString("fontId", "0"); w.WriteAttributeString("fillId", "0"); w.WriteAttributeString("borderId", "0");
-            w.WriteEndElement();
+            w.WriteAttributeString("count", Int(_named.Count));
+            foreach (var named in _named)
+            {
+                w.WriteStartElement("xf", MainNs);
+                w.WriteAttributeString("numFmtId", "0");
+                w.WriteAttributeString("fontId", Int(named.Font));
+                w.WriteAttributeString("fillId", Int(named.Fill));
+                w.WriteAttributeString("borderId", Int(named.Border));
+                w.WriteEndElement();
+            }
+
             w.WriteEndElement();
 
             w.WriteStartElement("cellXfs", MainNs);
@@ -200,11 +231,12 @@ public sealed partial class XlsxWorkbook
                 w.WriteAttributeString("fontId", Int(xf.Font));
                 w.WriteAttributeString("fillId", Int(xf.Fill));
                 w.WriteAttributeString("borderId", Int(xf.Border));
-                w.WriteAttributeString("xfId", "0");
+                w.WriteAttributeString("xfId", Int(xf.XfId));
                 if (xf.NumFmt != 0) { w.WriteAttributeString("applyNumberFormat", "1"); }
                 if (xf.Font != 0) { w.WriteAttributeString("applyFont", "1"); }
                 if (xf.Fill != 0) { w.WriteAttributeString("applyFill", "1"); }
                 if (xf.Border != 0) { w.WriteAttributeString("applyBorder", "1"); }
+                if (s.Unlocked || s.HideFormula) { w.WriteAttributeString("applyProtection", "1"); }
                 var aligned = s.Horizontal != null || s.Vertical != null || s.Wrap || s.ShrinkToFit || s.Indent > 0 || s.Rotation != 0;
                 if (aligned)
                 {
@@ -222,16 +254,31 @@ public sealed partial class XlsxWorkbook
                     w.WriteEndElement();
                 }
 
+                // Protection follows alignment; locked="0" keeps the cell editable on a locked sheet.
+                if (s.Unlocked || s.HideFormula)
+                {
+                    w.WriteStartElement("protection", MainNs);
+                    if (s.Unlocked) { w.WriteAttributeString("locked", "0"); }
+                    if (s.HideFormula) { w.WriteAttributeString("hidden", "1"); }
+                    w.WriteEndElement();
+                }
+
                 w.WriteEndElement();
             }
 
             w.WriteEndElement();
 
             w.WriteStartElement("cellStyles", MainNs);
-            w.WriteAttributeString("count", "1");
-            w.WriteStartElement("cellStyle", MainNs);
-            w.WriteAttributeString("name", "Normal"); w.WriteAttributeString("xfId", "0"); w.WriteAttributeString("builtinId", "0");
-            w.WriteEndElement();
+            w.WriteAttributeString("count", Int(_named.Count));
+            for (var i = 0; i < _named.Count; i++)
+            {
+                w.WriteStartElement("cellStyle", MainNs);
+                w.WriteAttributeString("name", XlsxCellStyles.Name(_named[i].Style));
+                w.WriteAttributeString("xfId", Int(i));
+                w.WriteAttributeString("builtinId", Int(XlsxCellStyles.BuiltinId(_named[i].Style)));
+                w.WriteEndElement();
+            }
+
             w.WriteEndElement();
 
             if (_dxfs.Count > 0)

@@ -129,6 +129,37 @@ public sealed partial class XlsxWorkbook
     /// </summary>
     public XlsxSheet? ActiveSheet { get; set; }
 
+    /// <summary>
+    /// The theme: the palette and fonts Excel offers in its pickers. Its fonts default to <see cref="DefaultFontName"/>;
+    /// use its colours in styles to stay in the palette (<c>Fill = book.Theme.Accent1</c>).
+    /// </summary>
+    public OfficeTheme Theme { get; } = new OfficeTheme();
+
+    /// <summary>
+    /// Whether the structure is locked: sheets cannot be added, deleted, renamed, moved, hidden or shown.
+    /// </summary>
+    public bool Protected { get; private set; }
+
+    /// <summary>
+    /// Password of the structure lock; none when empty.
+    /// </summary>
+    public string? Password { get; private set; }
+
+    /// <summary>
+    /// Locks the structure of the workbook: sheets cannot be added, deleted, renamed, moved, hidden or shown. The
+    /// content of the sheets is locked separately with <see cref="XlsxSheet.Protect"/>.
+    /// </summary>
+    /// <remarks>
+    /// A very hidden sheet (<see cref="XlsxSheetVisibility.VeryHidden"/>) together with this lock keeps lookup data
+    /// out of sight. The password is stored as a salted SHA-512 hash; the lock is not encryption.
+    /// </remarks>
+    /// <param name="password">Password; none when empty.</param>
+    public void Protect(string? password = null)
+    {
+        Protected = true;
+        Password = password;
+    }
+
     #endregion
 
     #region Public methods
@@ -266,9 +297,10 @@ public sealed partial class XlsxWorkbook
 
         _active = _sheets.IndexOf(active);
         _formulas = false;
+        PrepareTables();
         var plans = PlanSheets();
         var styles = new StyleTable(this);
-        var strings = new StringTable();
+        var strings = new StringTable(this);
         OpcPackage.Save(path, Created, package =>
         {
             // Sheets first: the style and string tables fill while they are written.
@@ -282,6 +314,11 @@ public sealed partial class XlsxWorkbook
             {
                 var plan = plans[i];
                 package.Relationships("xl/worksheets/_rels/sheet" + (i + 1) + ".xml.rels", plan.Relationships);
+                foreach (var table in _sheets[i].Tables)
+                {
+                    package.XmlPart("xl/tables/table" + table.Id + ".xml", w => WriteTable(w, table));
+                }
+
                 if (plan.Comments > 0)
                 {
                     var sheet = _sheets[i];
@@ -328,6 +365,7 @@ public sealed partial class XlsxWorkbook
                 }
             }
 
+            package.XmlPart("xl/theme/theme1.xml", w => ThemeWriter.Write(w, Theme, DefaultFontName));
             package.XmlPart("xl/styles.xml", styles.Write);
             package.XmlPart("xl/sharedStrings.xml", strings.Write);
             package.XmlPart("xl/workbook.xml", WriteWorkbook);
@@ -382,7 +420,7 @@ public sealed partial class XlsxWorkbook
     /// Excel's rules for a defined name: letter, underscore or backslash first, then letters, digits, underscores, dots
     /// and backslashes; at most 255 characters; not a cell address in either notation; not a reserved name.
     /// </summary>
-    private static bool IsDefinedName(string name)
+    internal static bool IsDefinedName(string name)
     {
         if (name.Length == 0 || name.Length > 255 || name.StartsWith("_xlnm.", StringComparison.OrdinalIgnoreCase))
         {
@@ -465,24 +503,6 @@ public sealed partial class XlsxWorkbook
         w.WriteAttributeString("type", type);
         if (value != null) { w.WriteAttributeString("val", value); }
         w.WriteEndElement();
-    }
-
-    /// <summary>
-    /// Excel's legacy 16-bit password hash for sheet protection (ECMA-376, part 18.2.28); four hex digits.
-    /// </summary>
-    internal static string PasswordHash(string password)
-    {
-        var hash = 0;
-        for (var i = password.Length - 1; i >= 0; i--)
-        {
-            hash = ((hash >> 14) & 0x01) | ((hash << 1) & 0x7FFF);
-            hash ^= password[i];
-        }
-
-        hash = ((hash >> 14) & 0x01) | ((hash << 1) & 0x7FFF);
-        hash ^= password.Length;
-        hash ^= 0xCE4B;
-        return hash.ToString("X4", CultureInfo.InvariantCulture);
     }
 
     private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);

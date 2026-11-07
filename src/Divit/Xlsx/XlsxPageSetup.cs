@@ -146,3 +146,70 @@ public readonly struct XlsxMargins
     public static XlsxMargins FromCentimeters(double left, double right, double top, double bottom, double header, double footer) =>
         new XlsxMargins(left / 2.54, right / 2.54, top / 2.54, bottom / 2.54, header / 2.54, footer / 2.54);
 }
+
+/// <summary>
+/// What users may still do on a locked sheet (<see cref="XlsxSheet.Protect"/>); selecting cells is always allowed.
+/// </summary>
+[System.Flags]
+public enum XlsxAllow
+{
+    /// <summary>
+    /// Nothing beyond selecting and editing unlocked cells.
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// Changing the format of cells.
+    /// </summary>
+    FormatCells = 1,
+
+    /// <summary>
+    /// Changing column widths, hiding columns.
+    /// </summary>
+    FormatColumns = 2,
+
+    /// <summary>
+    /// Changing row heights, hiding rows.
+    /// </summary>
+    FormatRows = 4,
+
+    /// <summary>
+    /// Inserting columns.
+    /// </summary>
+    InsertColumns = 8,
+
+    /// <summary>
+    /// Inserting rows.
+    /// </summary>
+    InsertRows = 16,
+
+    /// <summary>
+    /// Inserting links.
+    /// </summary>
+    InsertHyperlinks = 32,
+
+    /// <summary>
+    /// Deleting columns.
+    /// </summary>
+    DeleteColumns = 64,
+
+    /// <summary>
+    /// Deleting rows.
+    /// </summary>
+    DeleteRows = 128,
+
+    /// <summary>
+    /// Sorting (only ranges of unlocked cells).
+    /// </summary>
+    Sort = 256,
+
+    /// <summary>
+    /// Using the drop-downs of an existing auto filter.
+    /// </summary>
+    AutoFilter = 512,
+
+    /// <summary>
+    /// Using pivot tables.
+    /// </summary>
+    PivotTables = 1024,
+}

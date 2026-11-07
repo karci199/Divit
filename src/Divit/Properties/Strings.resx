@@ -81,4 +81,25 @@
   <data name="FormulaLength" xml:space="preserve">
     <value>A formula must have 1–8192 characters.</value>
   </data>
+  <data name="TableNeedsData" xml:space="preserve">
+    <value>A table needs a header row and at least one data row.</value>
+  </data>
+  <data name="TablesOverlap" xml:space="preserve">
+    <value>Table &quot;{0}&quot; overlaps table &quot;{1}&quot;.</value>
+  </data>
+  <data name="TableStyleUnknown" xml:space="preserve">
+    <value>Not one of Excel's table styles: &quot;{0}&quot;. Use TableStyleLight1–21, TableStyleMedium1–28 or TableStyleDark1–11.</value>
+  </data>
+  <data name="TableColumnOutOfRange" xml:space="preserve">
+    <value>Column {0} is outside table &quot;{1}&quot;.</value>
+  </data>
+  <data name="TableNameDuplicate" xml:space="preserve">
+    <value>A table or name like this already exists: &quot;{0}&quot;.</value>
+  </data>
+  <data name="TableOverlapsMerge" xml:space="preserve">
+    <value>Table &quot;{0}&quot; contains merged cells; Excel does not allow them in tables.</value>
+  </data>
+  <data name="TableOverlapsFilter" xml:space="preserve">
+    <value>Table &quot;{0}&quot; overlaps the sheet's auto filter; a table brings its own filter.</value>
+  </data>
 </root>

@@ -38,6 +38,7 @@ public sealed class XlsxSheet
     private readonly List<XlsxChart> _charts = new List<XlsxChart>();
     private readonly List<XlsxImage> _images = new List<XlsxImage>();
     private readonly List<XlsxConditional> _conditionals = new List<XlsxConditional>();
+    private readonly List<XlsxTable> _tables = new List<XlsxTable>();
     private readonly List<(int Row1, int Col1, int Row2, int Col2, XlsxValidation Validation)> _validations =
         new List<(int, int, int, int, XlsxValidation)>();
 
@@ -212,18 +213,27 @@ public sealed class XlsxSheet
     #region Protection
 
     /// <summary>
-    /// Locks the sheet: values cannot be edited by hand; selecting, copying and clicking links still work.
+    /// Locks the sheet: locked cells cannot be edited by hand; selecting, copying and clicking links still work. Cells
+    /// whose style has <see cref="XlsxStyle.Unlocked"/> stay editable, which turns the sheet into a form.
     /// </summary>
     /// <remarks>
-    /// Uses Excel's legacy 16-bit password hash. It is not authentication, only protection against accidental changes;
-    /// to prove that a file was not modified, keep a hash of the whole file elsewhere.
+    /// The password is stored as a salted SHA-512 hash with 100 000 rounds, as Excel 2013 and later write it. A lock is
+    /// not encryption: the values stay readable by any program; it guards against changes by hand. To prove that a file
+    /// was not modified, keep a hash of the whole file elsewhere.
     /// </remarks>
-    /// <param name="password">Password; none when empty.</param>
-    public void Protect(string? password = null)
+    /// <param name="password">Password; none when empty (Excel then lifts the lock with one click).</param>
+    /// <param name="allow">What users may still do on the locked sheet.</param>
+    public void Protect(string? password = null, XlsxAllow allow = XlsxAllow.None)
     {
         Protected = true;
         Password = password;
+        Allowed = allow;
     }
+
+    /// <summary>
+    /// What users may still do on the sheet while it is locked; see <see cref="Protect"/>.
+    /// </summary>
+    public XlsxAllow Allowed { get; private set; }
 
     #endregion
 
@@ -366,6 +376,45 @@ public sealed class XlsxSheet
     public void SetFormula(int row, int column, string formula, string result) => SetFormula(row, column, formula, (object)result);
 
     /// <summary>
+    /// Writes text whose pieces have their own fonts: a bold word, a red warning, a unit in superscript (m²).
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// sheet.SetRichText(1, 1, "Status: ", new XlsxRun("late", new XlsxStyle { Bold = true, FontColor = "#C00000" }));
+    /// </code>
+    /// </example>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="runs">The pieces in order; plain strings take the cell's font. Empty pieces are left out.</param>
+    public void SetRichText(int row, int column, params XlsxRun[] runs)
+    {
+        var cell = At(row, column);
+        var pieces = new List<XlsxRun>(runs.Length);
+        foreach (var run in runs)
+        {
+            if (!string.IsNullOrEmpty(run.Text))
+            {
+                pieces.Add(run);
+            }
+        }
+
+        cell.Formula = null;
+        if (pieces.Count == 0)
+        {
+            cell.Value = null;
+        }
+        else if (pieces.Count == 1 && pieces[0].Look == null)
+        {
+            // One piece in the cell's font is plain text.
+            cell.Value = pieces[0].Text;
+        }
+        else
+        {
+            cell.Value = new XlsxRichText(pieces);
+        }
+    }
+
+    /// <summary>
     /// A formula without its leading <c>=</c> and surrounding spaces.
     /// </summary>
     /// <exception cref="ArgumentException">The formula is empty or longer than Excel's 8192 characters.</exception>
@@ -403,7 +452,7 @@ public sealed class XlsxSheet
     /// <param name="row">Row (1-based).</param>
     /// <param name="column">Column (1-based).</param>
     /// <param name="text">The text.</param>
-    public void Set(int row, int column, string text) => At(row, column).Value = text;
+    public void Set(int row, int column, string text) => Value(row, column, text);
 
     /// <summary>
     /// Writes a number into a cell. NaN and infinity are not numbers in Excel; the cell stays empty.
@@ -412,7 +461,7 @@ public sealed class XlsxSheet
     /// <param name="column">Column (1-based).</param>
     /// <param name="number">The number.</param>
     public void Set(int row, int column, double number) =>
-        At(row, column).Value = double.IsNaN(number) || double.IsInfinity(number) ? null : (object)number;
+        Value(row, column, double.IsNaN(number) || double.IsInfinity(number) ? null : (object)number);
 
     /// <summary>
     /// Writes a date (and time) into a cell. Excel stores it as a day number; unless the cell already has a number
@@ -426,6 +475,7 @@ public sealed class XlsxSheet
     {
         var cell = At(row, column);
         cell.Value = DateNumber(date);
+        cell.Formula = null;
         if (cell.Style.NumberFormat == null)
         {
             cell.Style.NumberFormat = date.TimeOfDay == TimeSpan.Zero ? "yyyy-mm-dd" : "yyyy-mm-dd hh:mm:ss";
@@ -438,7 +488,7 @@ public sealed class XlsxSheet
     /// <param name="row">Row (1-based).</param>
     /// <param name="column">Column (1-based).</param>
     /// <param name="value">The value.</param>
-    public void Set(int row, int column, bool value) => At(row, column).Value = value;
+    public void Set(int row, int column, bool value) => Value(row, column, value);
 
     /// <summary>
     /// Excel's day number of a date: 1 is 1900-01-01. Excel counts a 29 February 1900 that never was, so from March 1900
@@ -502,6 +552,38 @@ public sealed class XlsxSheet
                 At(r, c).Style = style;
             }
         }
+    }
+
+    /// <summary>
+    /// Gives a range one of Excel's built-in cell styles (Heading 1, Good, Input, Total …): its font, fill and borders,
+    /// and the link to the style in Excel's gallery. Number format, alignment and protection of the cells stay.
+    /// </summary>
+    /// <param name="row1">First row (1-based).</param>
+    /// <param name="column1">First column (1-based).</param>
+    /// <param name="row2">Last row.</param>
+    /// <param name="column2">Last column.</param>
+    /// <param name="cellStyle">The built-in style.</param>
+    public void ApplyCellStyle(int row1, int column1, int row2, int column2, XlsxCellStyle cellStyle)
+    {
+        var look = XlsxStyle.Preset(cellStyle);
+        Format(row1, column1, row2, column2, (ref XlsxStyle s) =>
+        {
+            s.FontName = look.FontName;
+            s.FontSize = look.FontSize;
+            s.Bold = look.Bold;
+            s.Italic = look.Italic;
+            s.Underline = look.Underline;
+            s.DoubleUnderline = look.DoubleUnderline;
+            s.Strikethrough = look.Strikethrough;
+            s.Script = look.Script;
+            s.FontColor = look.FontColor;
+            s.Fill = look.Fill;
+            s.Left = look.Left;
+            s.Right = look.Right;
+            s.Top = look.Top;
+            s.Bottom = look.Bottom;
+            s.CellStyle = cellStyle;
+        });
     }
 
     /// <summary>
@@ -724,6 +806,82 @@ public sealed class XlsxSheet
     public double? NumberAt(int row, int column) =>
         _cells.TryGetValue(Key(row, column), out var cell) && cell.Value is double v ? v : (double?)null;
 
+    /// <summary>
+    /// Makes a range an Excel table: the first row holds the column names, the rows below the data. Tables get
+    /// filter buttons, banded rows and a name formulas can use (<c>SUM(Sales[Amount])</c>).
+    /// </summary>
+    /// <param name="row1">Header row (1-based).</param>
+    /// <param name="column1">First column (1-based).</param>
+    /// <param name="row2">Last data row; at least one row below the header.</param>
+    /// <param name="column2">Last column.</param>
+    /// <param name="name">Name of the table, by the rules of defined names (<see cref="XlsxWorkbook.DefineName"/>),
+    /// unique in the workbook among tables and names.</param>
+    /// <returns>The table, to set its style and totals row.</returns>
+    /// <exception cref="ArgumentException">The name is not usable, the range has no data row, or it overlaps another
+    /// table on this sheet.</exception>
+    public XlsxTable AddTable(int row1, int column1, int row2, int column2, string name)
+    {
+        CheckRange(row1, column1, row2, column2);
+        if (row2 <= row1)
+        {
+            throw new ArgumentException(Messages.Get(Strings.TableNeedsData));
+        }
+
+        if (!XlsxWorkbook.IsDefinedName(name))
+        {
+            throw new ArgumentException(Messages.Format(Strings.DefinedNameInvalid, name), nameof(name));
+        }
+
+        foreach (var other in _tables)
+        {
+            if (row1 <= other.LastRow && other.Row1 <= row2 && column1 <= other.Column2 && other.Column1 <= column2)
+            {
+                throw new ArgumentException(Messages.Format(Strings.TablesOverlap, name, other.Name));
+            }
+        }
+
+        var table = new XlsxTable(this, row1, column1, row2, column2, name);
+        _tables.Add(table);
+        return table;
+    }
+
+    /// <summary>
+    /// The tables of the sheet in the order they were added.
+    /// </summary>
+    public IReadOnlyList<XlsxTable> Tables => _tables;
+
+    /// <summary>
+    /// The text of a cell as Excel shows a header: text as it is, numbers in invariant form; <c>null</c> when empty.
+    /// </summary>
+    internal string? TextAt(int row, int column)
+    {
+        if (!_cells.TryGetValue(Key(row, column), out var cell))
+        {
+            return null;
+        }
+
+        switch (cell.Value)
+        {
+            case string text: return text;
+            case XlsxRichText rich: return rich.Text;
+            case double number: return number.ToString("R", CultureInfo.InvariantCulture);
+            case bool flag: return flag ? "TRUE" : "FALSE";
+            default: return null;
+        }
+    }
+
+    /// <summary>
+    /// Whether a cell holds plain text without a formula, as a table header must.
+    /// </summary>
+    internal bool IsPlainText(int row, int column) =>
+        _cells.TryGetValue(Key(row, column), out var cell) && cell.Value is string && cell.Formula == null;
+
+    /// <summary>
+    /// Whether a cell holds a value or a formula.
+    /// </summary>
+    internal bool HasValue(int row, int column) =>
+        _cells.TryGetValue(Key(row, column), out var cell) && (cell.Value != null || cell.Formula != null);
+
     #endregion
 
     #region Charts
@@ -768,6 +926,16 @@ public sealed class XlsxSheet
         }
 
         return cell;
+    }
+
+    /// <summary>
+    /// Writes a value; a formula in the cell goes, the style stays.
+    /// </summary>
+    private void Value(int row, int column, object? value)
+    {
+        var cell = At(row, column);
+        cell.Value = value;
+        cell.Formula = null;
     }
 
     private Line RowLine(int row) => LineOf(_rows, row);

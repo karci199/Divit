@@ -96,6 +96,35 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
     public int Rotation;
 
     /// <summary>
+    /// Keeps the cell editable when the sheet is locked (<see cref="XlsxSheet.Protect"/>): the input fields of a form.
+    /// Every cell is locked by default.
+    /// </summary>
+    public bool Unlocked;
+
+    /// <summary>
+    /// Hides the cell's formula in the formula bar when the sheet is locked; the result stays visible.
+    /// </summary>
+    public bool HideFormula;
+
+    /// <summary>
+    /// The built-in cell style the cell belongs to, shown highlighted in Excel's Cell Styles gallery. Setting it alone
+    /// changes no look; <see cref="Preset"/> and <see cref="XlsxSheet.ApplyCellStyle"/> give the look too.
+    /// </summary>
+    public XlsxCellStyle CellStyle;
+
+    /// <summary>
+    /// The look of a built-in cell style (font, fill, borders in Excel's default theme colours), tied to that style.
+    /// </summary>
+    /// <param name="cellStyle">The built-in style.</param>
+    /// <returns>The style.</returns>
+    public static XlsxStyle Preset(XlsxCellStyle cellStyle)
+    {
+        var look = XlsxCellStyles.Look(cellStyle);
+        look.CellStyle = cellStyle;
+        return look;
+    }
+
+    /// <summary>
     /// Number format as an Excel code (for example <c>0.00</c>); General when empty.
     /// </summary>
     public string? NumberFormat;
@@ -131,14 +160,20 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
     public bool IsDefault => Equals(default(XlsxStyle));
 
     /// <inheritdoc />
-    public bool Equals(XlsxStyle other) =>
-        FontName == other.FontName && FontSize.Equals(other.FontSize) && Bold == other.Bold && Italic == other.Italic
-        && Underline == other.Underline && DoubleUnderline == other.DoubleUnderline && Strikethrough == other.Strikethrough
-        && Script == other.Script && FontColor == other.FontColor && Fill == other.Fill
-        && Horizontal == other.Horizontal && Vertical == other.Vertical && Wrap == other.Wrap
-        && ShrinkToFit == other.ShrinkToFit && Indent == other.Indent && Rotation == other.Rotation
-        && NumberFormat == other.NumberFormat && Left.Equals(other.Left) && Right.Equals(other.Right)
-        && Top.Equals(other.Top) && Bottom.Equals(other.Bottom);
+    public bool Equals(XlsxStyle other) => Same(in this, in other);
+
+    /// <summary>
+    /// Field-by-field comparison without copying either style; the writer compares the style of every cell.
+    /// </summary>
+    internal static bool Same(in XlsxStyle a, in XlsxStyle other) =>
+        a.FontName == other.FontName && a.FontSize.Equals(other.FontSize) && a.Bold == other.Bold && a.Italic == other.Italic
+        && a.Underline == other.Underline && a.DoubleUnderline == other.DoubleUnderline && a.Strikethrough == other.Strikethrough
+        && a.Script == other.Script && a.FontColor == other.FontColor && a.Fill == other.Fill
+        && a.Horizontal == other.Horizontal && a.Vertical == other.Vertical && a.Wrap == other.Wrap
+        && a.ShrinkToFit == other.ShrinkToFit && a.Indent == other.Indent && a.Rotation == other.Rotation
+        && a.Unlocked == other.Unlocked && a.HideFormula == other.HideFormula && a.CellStyle == other.CellStyle
+        && a.NumberFormat == other.NumberFormat && a.Left.Equals(other.Left) && a.Right.Equals(other.Right)
+        && a.Top.Equals(other.Top) && a.Bottom.Equals(other.Bottom);
 
     /// <inheritdoc />
     public override bool Equals(object? obj) => obj is XlsxStyle other && Equals(other);
@@ -151,7 +186,7 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
             var h = (FontName?.GetHashCode() ?? 0) * 397 ^ FontSize.GetHashCode();
             h = h * 397 ^ (Bold ? 1 : 0) ^ (Italic ? 2 : 0) ^ (Underline ? 4 : 0) ^ (Wrap ? 8 : 0)
                 ^ (DoubleUnderline ? 16 : 0) ^ (Strikethrough ? 32 : 0) ^ (ShrinkToFit ? 64 : 0) ^ ((int)Script << 7);
-            h = h * 397 ^ Indent ^ (Rotation << 8);
+            h = h * 397 ^ Indent ^ (Rotation << 8) ^ (Unlocked ? 1 << 20 : 0) ^ (HideFormula ? 1 << 21 : 0) ^ ((int)CellStyle << 22);
             h = h * 397 ^ (FontColor?.GetHashCode() ?? 0);
             h = h * 397 ^ (Fill?.GetHashCode() ?? 0);
             h = h * 397 ^ (Horizontal?.GetHashCode() ?? 0);

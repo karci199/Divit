@@ -2,7 +2,9 @@
 namespace Divit.Xlsx;
 
 using Divit.Packaging;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Xml;
 
@@ -39,6 +41,11 @@ public sealed partial class XlsxWorkbook
                 plan.NoteShapesId = plan.Relationships.Add(RelationshipTypes.VmlDrawing, "../drawings/vmlDrawing" + plan.Comments + ".vml");
             }
 
+            foreach (var table in sheet.Tables)
+            {
+                plan.TableIds.Add(plan.Relationships.Add(TableRelationship, "../tables/table" + table.Id + ".xml"));
+            }
+
             foreach (var link in sheet.UrlLinks)
             {
                 plan.LinkIds.Add(plan.Relationships.Add(RelationshipTypes.Hyperlink, link.Url, true));
@@ -54,6 +61,24 @@ public sealed partial class XlsxWorkbook
     {
         w.WriteStartElement("workbook", MainNs);
         w.WriteAttributeString("xmlns", "r", null, RelNs);
+
+        // Structure lock: before bookViews in the order of the standard.
+        if (Protected)
+        {
+            w.WriteStartElement("workbookProtection", MainNs);
+            if (Password != null && Password.Length > 0)
+            {
+                var salt = PasswordHash.Salt(Created == null ? null : "Divit|workbook|" + Created.Value.Ticks.ToString(CultureInfo.InvariantCulture));
+                w.WriteAttributeString("workbookAlgorithmName", PasswordHash.Algorithm);
+                w.WriteAttributeString("workbookHashValue", PasswordHash.Sha512(Password, salt));
+                w.WriteAttributeString("workbookSaltValue", Convert.ToBase64String(salt));
+                w.WriteAttributeString("workbookSpinCount", Int(PasswordHash.SpinCount));
+            }
+
+            w.WriteAttributeString("lockStructure", "1");
+            w.WriteEndElement();
+        }
+
         w.WriteStartElement("bookViews", MainNs);
         // firstSheet is the leftmost tab shown in the tab bar; a hidden one there leaves the bar looking empty.
         w.WriteStartElement("workbookView", MainNs);
@@ -132,7 +157,7 @@ public sealed partial class XlsxWorkbook
     }
 
     /// <summary>
-    /// The workbook's relationships: the sheets as rId1 … rIdN, then styles and shared strings.
+    /// The workbook's relationships: the sheets as rId1 … rIdN, then styles, shared strings and the theme.
     /// </summary>
     private RelationshipList WorkbookRelationships()
     {
@@ -144,6 +169,7 @@ public sealed partial class XlsxWorkbook
 
         list.Add(RelationshipTypes.Styles, "styles.xml");
         list.Add(RelationshipTypes.SharedStrings, "sharedStrings.xml");
+        list.Add(RelationshipTypes.Theme, "theme/theme1.xml");
         return list;
     }
 
@@ -176,11 +202,17 @@ public sealed partial class XlsxWorkbook
             package.Override("/xl/charts/chart" + i + ".xml", ContentTypes.Chart);
         }
 
+        for (var i = 1; i <= _tables; i++)
+        {
+            package.Override("/xl/tables/table" + i + ".xml", TableContentType);
+        }
+
         for (var i = 1; i <= _notes; i++)
         {
             package.Override("/xl/comments" + i + ".xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml");
         }
 
+        package.Override("/xl/theme/theme1.xml", ThemeWriter.ContentType);
         package.Override("/xl/styles.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml");
         package.Override("/xl/sharedStrings.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml");
         package.Override("/docProps/core.xml", ContentTypes.CoreProperties);
@@ -208,5 +240,10 @@ public sealed partial class XlsxWorkbook
         public string? DrawingId;
 
         public string? NoteShapesId;
+
+        /// <summary>
+        /// Relationship ids of the tables, in the order of <see cref="XlsxSheet.Tables"/>.
+        /// </summary>
+        public readonly List<string> TableIds = new List<string>();
     }
 }
