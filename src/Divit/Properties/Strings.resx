@@ -129,4 +129,10 @@
   <data name="PivotNameDuplicate" xml:space="preserve">
     <value>A pivot table with this name is already on the sheet: &quot;{0}&quot;.</value>
   </data>
+  <data name="TableColumnsOutOfRange" xml:space="preserve">
+    <value>A table has 1–63 columns: {0}.</value>
+  </data>
+  <data name="TableWidthsCount" xml:space="preserve">
+    <value>Got {0} values for a table of {1} columns.</value>
+  </data>
 </root>

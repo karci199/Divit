@@ -10,7 +10,7 @@ it needs neither Office nor any NuGet package at run time.
 | Format | State |
 |---|---|
 | Excel (`.xlsx`) | Writing: text, numbers, dates, booleans, styles (strikethrough, double underline, super/subscript, indent, rotation, shrink to fit), merges, borders, column widths, hidden and grouped rows and columns, frozen panes, auto filter, formulas, data validation, conditional formatting (rules, colour scales, data bars, icon sets), rich text, tables with totals rows, pivot tables (row, column, filter and value fields), theme, built-in cell styles, comments (rich text, box size), images (PNG, JPEG, GIF; at a cell or filling cells), links (sheets, files, web, e-mail), defined names, hidden sheets, tab order and active tab, sheet and workbook protection (SHA-512, editable cells), print settings (paper, margins, centring, gridlines, page breaks, first and even page headers), charts (scatter, polar, column, bar, line, area, pie, doughnut; combined, secondary axis, stacked and 100 %, logarithmic and reversed axes, trendlines, error bars, data labels), streamed sheets for millions of rows |
-| Word (`.docx`) | Planned |
+| Word (`.docx`) | Writing: sections (page size, orientation, margins, vertical alignment, page numbering), paragraphs and fonts, numbered headings (1, 1.1, 1.1.1), a house style turned into Word styles, headers and footers (first page, even pages) with page fields, tables (house, grid and plain looks, repeated header rows, column widths and alignment, merged cells, also in headers and footers), images (PNG, JPEG, GIF), figure and table captions, table of contents and lists of figures and tables |
 
 Divit writes documents; it does not read or edit existing ones. Build the document again from your own data instead.
 
@@ -39,6 +39,29 @@ chart.Title = "Gain";
 chart.AddSeries("Gain", 2, 38, 1, 2);
 book.Save("measurement.xlsx");
 ```
+
+## Word example
+
+```csharp
+using Divit.Docx;
+
+var doc = new DocxDocument { Title = "Test procedure", NumberHeadings = true };
+doc.Look.BodyFont = "Trebuchet MS";
+doc.Look.BodySize = 12;
+doc.Section.Header.AddParagraph().Add("TP-001 Rev. A  ·  Page ").AddField(DocxField.Page);
+doc.AddTableOfContents(3, "Contents");
+doc.AddHeading("Tests", 1);
+doc.AddHeading("Hardware list", 2);
+doc.AddCaption(DocxCaptionKind.Table, "Hardware list");
+var table = doc.AddTable(3).SetColumnWidths(1, 9, 6);
+table.AddHeaderRow("No", "Equipment", "Model");
+table.AddRow("1", "Vector network analyser", "ZNA43");
+doc.Save("procedure.docx");
+```
+
+A full acceptance test procedure (cover with letterhead, headers and footers as tables, change record, contents,
+lists of figures and tables, numbered chapters, hardware and software lists, figures, record form) is built in
+`tests/Divit.Tests/DocxProcedureTests.cs` from these blocks only.
 
 ## Very large sheets
 
@@ -69,11 +92,12 @@ dotnet test Divit.sln
 ```
 
 Tests run on .NET Framework 4.8 and .NET 10. Every generated file is checked with the Open XML SDK validator, which is
-a test-only dependency. Sample files land in `artifacts/gallery` for a look in Excel.
+a test-only dependency. Sample files land in `artifacts/gallery` for a look in Excel and Word.
 
 ## Roadmap
 
-1. Word (`.docx`): paragraphs, styles, tables, images, headers and footers, page setup, on the shared package layer
+1. Word (`.docx`): numbered and bulleted lists, cross-references and links, watermarks, clickable check boxes,
+   footnotes, document protection, native charts, floating images and text boxes
 2. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV, PDF
 3. Macros last, if ever: a prebuilt `vbaProject.bin` or COM
 
