@@ -39,4 +39,28 @@
   <data name="ColorInvalid" xml:space="preserve">
     <value>A colour must be #RRGGBB: &quot;{0}&quot;.</value>
   </data>
+  <data name="DateOutOfRange" xml:space="preserve">
+    <value>Excel dates start at 1900-01-01: {0}.</value>
+  </data>
+  <data name="LinkEmpty" xml:space="preserve">
+    <value>A link needs an address.</value>
+  </data>
+  <data name="GroupRangeReversed" xml:space="preserve">
+    <value>Group range is reversed: the first row or column comes after the last one.</value>
+  </data>
+  <data name="NoVisibleSheet" xml:space="preserve">
+    <value>Every sheet is hidden; Excel needs at least one visible sheet.</value>
+  </data>
+  <data name="ActiveSheetHidden" xml:space="preserve">
+    <value>The active sheet must be visible: &quot;{0}&quot;.</value>
+  </data>
+  <data name="SheetNotInWorkbook" xml:space="preserve">
+    <value>The sheet belongs to another workbook: &quot;{0}&quot;.</value>
+  </data>
+  <data name="DefinedNameInvalid" xml:space="preserve">
+    <value>Not a usable name: &quot;{0}&quot;. A name starts with a letter or underscore, holds letters, digits, underscores and dots, and is not a cell address.</value>
+  </data>
+  <data name="DefinedNameDuplicate" xml:space="preserve">
+    <value>A name like this already exists: &quot;{0}&quot;.</value>
+  </data>
 </root>

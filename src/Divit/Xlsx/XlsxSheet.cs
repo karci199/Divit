@@ -4,6 +4,7 @@ namespace Divit.Xlsx;
 using Divit.Properties;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 /// <summary>
 /// One sheet of a workbook: cells, merges, sizes, links, view and print settings.
@@ -27,11 +28,12 @@ public sealed class XlsxSheet
     internal const int MaxRow = 1048576;
 
     private readonly Dictionary<long, Cell> _cells = new Dictionary<long, Cell>();
-    private readonly Dictionary<int, double> _widths = new Dictionary<int, double>();
-    private readonly Dictionary<int, double> _heights = new Dictionary<int, double>();
-    private readonly HashSet<int> _hidden = new HashSet<int>();
+    private readonly Dictionary<int, Line> _rows = new Dictionary<int, Line>();
+    private readonly Dictionary<int, Line> _columns = new Dictionary<int, Line>();
     private readonly List<(int Row1, int Col1, int Row2, int Col2)> _merges = new List<(int, int, int, int)>();
     private readonly List<(int Row, int Col, string Sheet)> _links = new List<(int, int, string)>();
+    private readonly List<(int Row, int Col, string Url)> _urlLinks = new List<(int, int, string)>();
+    private readonly SortedDictionary<long, XlsxComment> _comments = new SortedDictionary<long, XlsxComment>();
     private readonly List<XlsxChart> _charts = new List<XlsxChart>();
     private readonly List<XlsxImage> _images = new List<XlsxImage>();
     private readonly List<XlsxColorScale> _colorScales = new List<XlsxColorScale>();
@@ -141,19 +143,60 @@ public sealed class XlsxSheet
 
     internal IReadOnlyList<XlsxColorScale> ColorScales => _colorScales;
 
-    internal IReadOnlyCollection<int> HiddenColumns => _hidden;
+    /// <summary>
+    /// Whether the tab is shown; at least one sheet of a workbook must stay visible.
+    /// </summary>
+    public XlsxSheetVisibility Visibility { get; set; }
+
+    /// <summary>
+    /// Paper the sheet is printed on; A4 by default.
+    /// </summary>
+    public XlsxPaperSize PaperSize { get; set; } = XlsxPaperSize.A4;
+
+    /// <summary>
+    /// Page margins in inches; <see cref="XlsxMargins.Default"/> unless set.
+    /// </summary>
+    public XlsxMargins Margins { get; set; } = XlsxMargins.Default;
+
+    /// <summary>
+    /// Centres the printed content between the left and right margins.
+    /// </summary>
+    public bool PrintCenteredHorizontally { get; set; }
+
+    /// <summary>
+    /// Centres the printed content between the top and bottom margins.
+    /// </summary>
+    public bool PrintCenteredVertically { get; set; }
+
+    /// <summary>
+    /// Prints the gridlines.
+    /// </summary>
+    public bool PrintGridLines { get; set; }
 
     internal (int Row1, int Col1, int Row2, int Col2)? AutoFilterRange { get; private set; }
 
     internal IReadOnlyDictionary<long, Cell> Cells => _cells;
 
-    internal IReadOnlyDictionary<int, double> Widths => _widths;
+    /// <summary>
+    /// Rows with a height, hidden or grouped; the key is the row number.
+    /// </summary>
+    internal IReadOnlyDictionary<int, Line> Rows => _rows;
 
-    internal IReadOnlyDictionary<int, double> Heights => _heights;
+    /// <summary>
+    /// Columns with a width, hidden or grouped; the key is the column number.
+    /// </summary>
+    internal IReadOnlyDictionary<int, Line> Columns => _columns;
 
     internal IReadOnlyList<(int Row1, int Col1, int Row2, int Col2)> Merges => _merges;
 
     internal IReadOnlyList<(int Row, int Col, string Sheet)> Links => _links;
+
+    internal IReadOnlyList<(int Row, int Col, string Url)> UrlLinks => _urlLinks;
+
+    /// <summary>
+    /// Comments in row order, then column order.
+    /// </summary>
+    internal IReadOnlyCollection<XlsxComment> Comments => _comments.Values;
 
     #endregion
 
@@ -235,6 +278,50 @@ public sealed class XlsxSheet
     /// <param name="number">The number.</param>
     public void Set(int row, int column, double number) =>
         At(row, column).Value = double.IsNaN(number) || double.IsInfinity(number) ? null : (object)number;
+
+    /// <summary>
+    /// Writes a date (and time) into a cell. Excel stores it as a day number; unless the cell already has a number
+    /// format, <c>yyyy-mm-dd</c> is used, or <c>yyyy-mm-dd hh:mm:ss</c> when the value has a time of day.
+    /// </summary>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="date">The date; its <see cref="DateTime.Kind"/> is ignored, the clock time is written as it is.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The date is before 1900-01-01, Excel's first day.</exception>
+    public void Set(int row, int column, DateTime date)
+    {
+        var cell = At(row, column);
+        cell.Value = DateNumber(date);
+        if (cell.Style.NumberFormat == null)
+        {
+            cell.Style.NumberFormat = date.TimeOfDay == TimeSpan.Zero ? "yyyy-mm-dd" : "yyyy-mm-dd hh:mm:ss";
+        }
+    }
+
+    /// <summary>
+    /// Writes TRUE or FALSE into a cell.
+    /// </summary>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="value">The value.</param>
+    public void Set(int row, int column, bool value) => At(row, column).Value = value;
+
+    /// <summary>
+    /// Excel's day number of a date: 1 is 1900-01-01. Excel counts a 29 February 1900 that never was, so from March 1900
+    /// on the number is one higher than the real day count.
+    /// </summary>
+    /// <param name="date">The date.</param>
+    /// <returns>The day number; the time of day is the fraction.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The date is before 1900-01-01.</exception>
+    public static double DateNumber(DateTime date)
+    {
+        if (date < new DateTime(1900, 1, 1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(date), Messages.Format(Strings.DateOutOfRange, date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+        }
+
+        var days = (date - new DateTime(1899, 12, 30)).Ticks / (double)TimeSpan.TicksPerDay;
+        return days < 61 ? days - 1 : days;
+    }
 
     /// <summary>
     /// Changes the style of every cell in a range; the edit stacks on top of earlier ones.
@@ -337,7 +424,7 @@ public sealed class XlsxSheet
     public void ColumnWidth(int column, double width)
     {
         Check(1, column);
-        _widths[column] = width;
+        ColumnLine(column).Size = width;
     }
 
     /// <summary>
@@ -347,7 +434,7 @@ public sealed class XlsxSheet
     public void HideColumn(int column)
     {
         Check(1, column);
-        _hidden.Add(column);
+        ColumnLine(column).Hidden = true;
     }
 
     /// <summary>
@@ -358,7 +445,88 @@ public sealed class XlsxSheet
     public void RowHeight(int row, double height)
     {
         Check(row, 1);
-        _heights[row] = height;
+        RowLine(row).Size = height;
+    }
+
+    /// <summary>
+    /// Hides a row; its values stay and formulas and charts still use them.
+    /// </summary>
+    /// <param name="row">Row (1-based).</param>
+    public void HideRow(int row)
+    {
+        Check(row, 1);
+        RowLine(row).Hidden = true;
+    }
+
+    /// <summary>
+    /// Groups rows under an outline button, so they can be folded away. Groups nest: grouping rows that are already
+    /// grouped adds a level, up to seven. The button sits on the row below the group (the summary row).
+    /// </summary>
+    /// <param name="first">First row of the group (1-based).</param>
+    /// <param name="last">Last row of the group.</param>
+    /// <param name="collapsed">Whether the group opens folded: its rows hidden, the button showing "+".</param>
+    public void GroupRows(int first, int last, bool collapsed = false)
+    {
+        Check(first, 1);
+        Check(last, 1);
+        Group(_rows, first, last, collapsed, last < MaxRow);
+    }
+
+    /// <summary>
+    /// Groups columns under an outline button; see <see cref="GroupRows"/>. The button sits on the column to the right
+    /// of the group.
+    /// </summary>
+    /// <param name="first">First column of the group (1-based).</param>
+    /// <param name="last">Last column of the group.</param>
+    /// <param name="collapsed">Whether the group opens folded.</param>
+    public void GroupColumns(int first, int last, bool collapsed = false)
+    {
+        Check(1, first);
+        Check(1, last);
+        Group(_columns, first, last, collapsed, last < MaxColumn);
+    }
+
+    /// <summary>
+    /// Writes a note on a cell: a red corner on the cell, the text in a yellow box when the pointer rests on it.
+    /// </summary>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="text">Text of the note; line breaks are kept.</param>
+    /// <param name="author">Author shown in Excel; the workbook author when empty.</param>
+    public void Comment(int row, int column, string text, string? author = null)
+    {
+        Check(row, column);
+        _comments[Key(row, column)] = new XlsxComment(row, column, text, author);
+    }
+
+    /// <summary>
+    /// Links a cell to a web page, an e-mail address (<c>mailto:</c>) or a file; clicking the cell opens it. The cell
+    /// shows <paramref name="text"/> and gets the usual link look (blue, underlined) unless it already has a font colour.
+    /// </summary>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="url">Target, for example <c>https://example.com</c>, <c>mailto:someone@example.com</c> or a
+    /// relative file path such as <c>report.pdf</c>.</param>
+    /// <param name="text">Text shown in the cell; the address itself when empty.</param>
+    /// <exception cref="ArgumentException">The address is empty.</exception>
+    public void LinkUrl(int row, int column, string url, string? text = null)
+    {
+        Check(row, column);
+        if (url.Length == 0)
+        {
+            throw new ArgumentException(Messages.Get(Strings.LinkEmpty), nameof(url));
+        }
+
+        var cell = At(row, column);
+        cell.Value = text ?? url;
+        cell.Formula = null;
+        if (cell.Style.FontColor == null)
+        {
+            cell.Style.FontColor = "#0563C1";
+            cell.Style.Underline = true;
+        }
+
+        _urlLinks.Add((row, column, url));
     }
 
     /// <summary>
@@ -467,6 +635,42 @@ public sealed class XlsxSheet
         return cell;
     }
 
+    private Line RowLine(int row) => LineOf(_rows, row);
+
+    private Line ColumnLine(int column) => LineOf(_columns, column);
+
+    private static Line LineOf(Dictionary<int, Line> lines, int number)
+    {
+        if (!lines.TryGetValue(number, out var line))
+        {
+            line = new Line();
+            lines[number] = line;
+        }
+
+        return line;
+    }
+
+    private static void Group(Dictionary<int, Line> lines, int first, int last, bool collapsed, bool hasSummary)
+    {
+        if (last < first)
+        {
+            throw new ArgumentException(Messages.Get(Strings.GroupRangeReversed));
+        }
+
+        for (var i = first; i <= last; i++)
+        {
+            var line = LineOf(lines, i);
+            line.Level = Math.Min(7, line.Level + 1);
+            line.Hidden |= collapsed;
+        }
+
+        // Excel keeps the folded state on the row or column after the group.
+        if (collapsed && hasSummary)
+        {
+            LineOf(lines, last + 1).Collapsed = true;
+        }
+    }
+
     private static void Check(int row, int column)
     {
         if (row < 1 || row > MaxRow || column < 1 || column > MaxColumn)
@@ -498,6 +702,51 @@ public sealed class XlsxSheet
         public int Width { get; }
 
         public int Height { get; }
+    }
+
+    /// <summary>
+    /// Properties of a row or a column: size, hidden, outline level.
+    /// </summary>
+    internal sealed class Line
+    {
+        /// <summary>
+        /// Height in points (row) or width in Excel units (column); <c>null</c> for the default.
+        /// </summary>
+        public double? Size;
+
+        public bool Hidden;
+
+        /// <summary>
+        /// Outline level, 0 when not grouped.
+        /// </summary>
+        public int Level;
+
+        /// <summary>
+        /// Whether the group before this row or column is folded.
+        /// </summary>
+        public bool Collapsed;
+    }
+
+    /// <summary>
+    /// A note on a cell.
+    /// </summary>
+    internal sealed class XlsxComment
+    {
+        public XlsxComment(int row, int column, string text, string? author)
+        {
+            Row = row;
+            Column = column;
+            Text = text;
+            Author = author;
+        }
+
+        public int Row { get; }
+
+        public int Column { get; }
+
+        public string Text { get; }
+
+        public string? Author { get; }
     }
 
     /// <summary>

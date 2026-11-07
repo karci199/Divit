@@ -21,6 +21,14 @@ internal static class Strings
     internal const string SheetNameDuplicate = nameof(SheetNameDuplicate);
     internal const string WorkbookEmpty = nameof(WorkbookEmpty);
     internal const string ColorInvalid = nameof(ColorInvalid);
+    internal const string DateOutOfRange = nameof(DateOutOfRange);
+    internal const string LinkEmpty = nameof(LinkEmpty);
+    internal const string GroupRangeReversed = nameof(GroupRangeReversed);
+    internal const string NoVisibleSheet = nameof(NoVisibleSheet);
+    internal const string ActiveSheetHidden = nameof(ActiveSheetHidden);
+    internal const string SheetNotInWorkbook = nameof(SheetNotInWorkbook);
+    internal const string DefinedNameInvalid = nameof(DefinedNameInvalid);
+    internal const string DefinedNameDuplicate = nameof(DefinedNameDuplicate);
 }
 
 /// <summary>

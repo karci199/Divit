@@ -35,11 +35,24 @@ public sealed class XlsxWorkbook
     private readonly List<XlsxSheet> _sheets = new List<XlsxSheet>();
 
     /// <summary>
+    /// Defined names in the order they were added.
+    /// </summary>
+    private readonly List<(string Name, XlsxSheet Sheet, int Row1, int Col1, int Row2, int Col2, XlsxSheet? Scope)> _names =
+        new List<(string, XlsxSheet, int, int, int, int, XlsxSheet?)>();
+
+    /// <summary>
     /// Number of drawing layers and charts written by the last save; the content type list is built from them.
     /// </summary>
     private int _drawings;
 
     private int _charts;
+
+    /// <summary>
+    /// Number of sheets with comments in the last save, and the tab index of the sheet that opens first.
+    /// </summary>
+    private int _notes;
+
+    private int _active;
 
     #endregion
 
@@ -107,6 +120,11 @@ public sealed class XlsxWorkbook
     /// </summary>
     public DateTime? Created { get; set; }
 
+    /// <summary>
+    /// The sheet that is open when the file opens; the first visible sheet when empty. It must be visible.
+    /// </summary>
+    public XlsxSheet? ActiveSheet { get; set; }
+
     #endregion
 
     #region Public methods
@@ -127,6 +145,66 @@ public sealed class XlsxWorkbook
         var sheet = new XlsxSheet(name);
         _sheets.Add(sheet);
         return sheet;
+    }
+
+    /// <summary>
+    /// Moves a sheet to another place in the tab order.
+    /// </summary>
+    /// <param name="sheet">A sheet of this workbook.</param>
+    /// <param name="index">New position, 0 for the first tab.</param>
+    /// <exception cref="ArgumentException">The sheet belongs to another workbook.</exception>
+    public void MoveSheet(XlsxSheet sheet, int index)
+    {
+        if (!_sheets.Remove(sheet))
+        {
+            throw new ArgumentException(Messages.Format(Strings.SheetNotInWorkbook, sheet.Name), nameof(sheet));
+        }
+
+        _sheets.Insert(Math.Max(0, Math.Min(index, _sheets.Count)), sheet);
+    }
+
+    /// <summary>
+    /// Gives a range a name, usable in formulas (<c>=SUM(Sales)</c>) and in Excel's Name Box to jump to it.
+    /// </summary>
+    /// <param name="name">The name: starts with a letter or underscore, then letters, digits, underscores and dots;
+    /// not a cell address such as <c>A1</c> or <c>R1C1</c>; unique in its scope (ignoring case).</param>
+    /// <param name="sheet">Sheet of the range.</param>
+    /// <param name="row1">First row (1-based).</param>
+    /// <param name="column1">First column (1-based).</param>
+    /// <param name="row2">Last row.</param>
+    /// <param name="column2">Last column.</param>
+    /// <param name="scope">The sheet the name belongs to, so the same name can exist on other sheets; the whole
+    /// workbook when empty.</param>
+    /// <exception cref="ArgumentException">The name is not usable or the sheet belongs to another workbook.</exception>
+    public void DefineName(string name, XlsxSheet sheet, int row1, int column1, int row2, int column2, XlsxSheet? scope = null)
+    {
+        foreach (var owned in new[] { sheet, scope })
+        {
+            if (owned != null && !_sheets.Contains(owned))
+            {
+                throw new ArgumentException(Messages.Format(Strings.SheetNotInWorkbook, owned.Name), nameof(sheet));
+            }
+        }
+
+        if (!IsDefinedName(name))
+        {
+            throw new ArgumentException(Messages.Format(Strings.DefinedNameInvalid, name), nameof(name));
+        }
+
+        foreach (var defined in _names)
+        {
+            if (defined.Scope == scope && string.Equals(defined.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(Messages.Format(Strings.DefinedNameDuplicate, name), nameof(name));
+            }
+        }
+
+        if (row1 < 1 || column1 < 1 || row2 > XlsxSheet.MaxRow || column2 > XlsxSheet.MaxColumn || row2 < row1 || column2 < column1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(row1), Messages.Format(Strings.CellOutOfRange, row1, column1));
+        }
+
+        _names.Add((name, sheet, row1, column1, row2, column2, scope));
     }
 
     /// <summary>
@@ -166,6 +244,24 @@ public sealed class XlsxWorkbook
             throw new InvalidOperationException(Messages.Get(Strings.WorkbookEmpty));
         }
 
+        var active = ActiveSheet ?? _sheets.FirstOrDefault(s => s.Visibility == XlsxSheetVisibility.Visible);
+        if (active == null)
+        {
+            throw new InvalidOperationException(Messages.Get(Strings.NoVisibleSheet));
+        }
+
+        if (!_sheets.Contains(active))
+        {
+            throw new InvalidOperationException(Messages.Format(Strings.SheetNotInWorkbook, active.Name));
+        }
+
+        if (active.Visibility != XlsxSheetVisibility.Visible)
+        {
+            throw new InvalidOperationException(Messages.Format(Strings.ActiveSheetHidden, active.Name));
+        }
+
+        _active = _sheets.IndexOf(active);
+        var plans = PlanSheets();
         var styles = new StyleTable(this);
         var strings = new StringTable();
         var temp = path + ".tmp";
@@ -178,23 +274,48 @@ public sealed class XlsxWorkbook
                 // Sheets first: the style and string tables fill while they are written.
                 for (var i = 0; i < _sheets.Count; i++)
                 {
-                    Part(zip, "xl/worksheets/sheet" + (i + 1) + ".xml", w => WriteSheet(w, _sheets[i], i == 0, styles, strings));
+                    Part(zip, "xl/worksheets/sheet" + (i + 1) + ".xml", w => WriteSheet(w, _sheets[i], i == _active, plans[i], styles, strings));
+                }
+
+                // The sheets' relationships, then their notes: a comment list and the legacy VML shapes Excel draws them with.
+                for (var i = 0; i < _sheets.Count; i++)
+                {
+                    var plan = plans[i];
+                    if (plan.Relationships.Count > 0)
+                    {
+                        Part(zip, "xl/worksheets/_rels/sheet" + (i + 1) + ".xml.rels", w =>
+                        {
+                            w.WriteStartElement("Relationships", PackageRelNs);
+                            foreach (var rel in plan.Relationships)
+                            {
+                                Relationship(w, rel.Id, rel.Type, rel.Target, rel.External);
+                            }
+
+                            w.WriteEndElement();
+                        });
+                    }
+
+                    if (plan.Comments > 0)
+                    {
+                        var sheet = _sheets[i];
+                        Part(zip, "xl/comments" + plan.Comments + ".xml", w => WriteComments(w, sheet));
+                        Part(zip, "xl/drawings/vmlDrawing" + plan.Comments + ".vml", w => WriteNoteShapes(w, sheet, plan.Comments), false);
+                    }
                 }
 
                 // Every sheet with charts or images: sheet → drawing layer → charts and images. Numbers run across the workbook.
-                _drawings = 0;
                 _charts = 0;
                 var media = 0;
                 for (var i = 0; i < _sheets.Count; i++)
                 {
                     var charts = _sheets[i].Charts;
                     var images = _sheets[i].Images;
-                    if (charts.Count == 0 && images.Count == 0)
+                    if (plans[i].Drawing == 0)
                     {
                         continue;
                     }
 
-                    var drawing = ++_drawings;
+                    var drawing = plans[i].Drawing;
                     var firstChart = _charts + 1;
                     var firstImage = media + 1;
                     foreach (var image in images)
@@ -206,12 +327,6 @@ public sealed class XlsxWorkbook
                         }
                     }
 
-                    Part(zip, "xl/worksheets/_rels/sheet" + (i + 1) + ".xml.rels", w =>
-                    {
-                        w.WriteStartElement("Relationships", PackageRelNs);
-                        Relationship(w, "rId1", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing", "../drawings/drawing" + drawing + ".xml");
-                        w.WriteEndElement();
-                    });
                     Part(zip, "xl/drawings/drawing" + drawing + ".xml", w => XlsxChartWriter.WriteDrawing(w, charts, images));
                     Part(zip, "xl/drawings/_rels/drawing" + drawing + ".xml.rels", w =>
                     {
@@ -307,19 +422,65 @@ public sealed class XlsxWorkbook
         return entry;
     }
 
-    private void Part(ZipArchive zip, string name, PartWriter write)
+    /// <summary>
+    /// Writes one XML part; <paramref name="declaration"/> is off only for the legacy VML part, which Excel writes
+    /// without one.
+    /// </summary>
+    private void Part(ZipArchive zip, string name, PartWriter write, bool declaration = true)
     {
         var entry = Entry(zip, name, CompressionLevel.Fastest);
-        var settings = new XmlWriterSettings { Encoding = new UTF8Encoding(false), Indent = false, CloseOutput = true };
+        var settings = new XmlWriterSettings { Encoding = new UTF8Encoding(false), Indent = false, CloseOutput = true, OmitXmlDeclaration = !declaration };
         using (var w = XmlWriter.Create(entry.Open(), settings))
         {
-            w.WriteStartDocument(true);
+            if (declaration)
+            {
+                w.WriteStartDocument(true);
+            }
+
             write(w);
             w.WriteEndDocument();
         }
     }
 
-    private void WriteSheet(XmlWriter w, XlsxSheet sheet, bool selected, StyleTable styles, StringTable strings)
+    /// <summary>
+    /// Numbers the parts of every sheet and gives their relationships ids, before anything is written: the sheet XML
+    /// names the ids, the relationship parts and content types list the parts.
+    /// </summary>
+    private SheetPlan[] PlanSheets()
+    {
+        const string Rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+        var plans = new SheetPlan[_sheets.Count];
+        _drawings = 0;
+        _notes = 0;
+        for (var i = 0; i < _sheets.Count; i++)
+        {
+            var sheet = _sheets[i];
+            var plan = new SheetPlan();
+            if (sheet.Charts.Count > 0 || sheet.Images.Count > 0)
+            {
+                plan.Drawing = ++_drawings;
+                plan.DrawingId = plan.Add(Rel + "drawing", "../drawings/drawing" + plan.Drawing + ".xml", false);
+            }
+
+            if (sheet.Comments.Count > 0)
+            {
+                plan.Comments = ++_notes;
+                plan.Add(Rel + "comments", "../comments" + plan.Comments + ".xml", false);
+                plan.NoteShapesId = plan.Add(Rel + "vmlDrawing", "../drawings/vmlDrawing" + plan.Comments + ".vml", false);
+            }
+
+            foreach (var link in sheet.UrlLinks)
+            {
+                plan.LinkIds.Add(plan.Add(Rel + "hyperlink", link.Url, true));
+            }
+
+            plans[i] = plan;
+        }
+
+        return plans;
+    }
+
+    private void WriteSheet(XmlWriter w, XlsxSheet sheet, bool selected, SheetPlan plan, StyleTable styles, StringTable strings)
     {
         w.WriteStartElement("worksheet", MainNs);
         w.WriteAttributeString("xmlns", "r", null, RelNs);
@@ -352,8 +513,8 @@ public sealed class XlsxWorkbook
 
         Array.Sort(keys, cells);
 
-        // Rows with an explicit height are written even when they hold no cell.
-        var heights = sheet.Heights.Keys.ToArray();
+        // Rows with a height, hidden or grouped are written even when they hold no cell.
+        var heights = sheet.Rows.Keys.ToArray();
         Array.Sort(heights);
 
         w.WriteStartElement("dimension", MainNs);
@@ -416,31 +577,40 @@ public sealed class XlsxWorkbook
         w.WriteStartElement("sheetFormatPr", MainNs);
         w.WriteAttributeString("defaultRowHeight", Num(DefaultRowHeight));
         w.WriteAttributeString("customHeight", "1");
+
+        // The deepest outline levels; Excel sizes the outline button bar from them.
+        var rowLevels = sheet.Rows.Values.Select(l => l.Level).DefaultIfEmpty(0).Max();
+        var columnLevels = sheet.Columns.Values.Select(l => l.Level).DefaultIfEmpty(0).Max();
+        if (rowLevels > 0) { w.WriteAttributeString("outlineLevelRow", Int(rowLevels)); }
+        if (columnLevels > 0) { w.WriteAttributeString("outlineLevelCol", Int(columnLevels)); }
         w.WriteEndElement();
 
-        // cols: only columns with a width or hidden.
-        var columns = new SortedSet<int>(sheet.Widths.Keys);
-        columns.UnionWith(sheet.HiddenColumns);
-        if (columns.Count > 0)
+        // cols: only columns with a width, hidden or grouped.
+        if (sheet.Columns.Count > 0)
         {
+            var numbers = sheet.Columns.Keys.ToArray();
+            Array.Sort(numbers);
             w.WriteStartElement("cols", MainNs);
-            foreach (var col in columns)
+            foreach (var col in numbers)
             {
+                var line = sheet.Columns[col];
                 w.WriteStartElement("col", MainNs);
                 w.WriteAttributeString("min", Int(col));
                 w.WriteAttributeString("max", Int(col));
-                w.WriteAttributeString("width", Num(sheet.Widths.TryGetValue(col, out var width) ? width : 8.43));
-                if (sheet.HiddenColumns.Contains(col)) { w.WriteAttributeString("hidden", "1"); }
+                w.WriteAttributeString("width", Num(line.Size ?? 8.43));
+                if (line.Hidden) { w.WriteAttributeString("hidden", "1"); }
                 w.WriteAttributeString("customWidth", "1");
+                if (line.Level > 0) { w.WriteAttributeString("outlineLevel", Int(line.Level)); }
+                if (line.Collapsed) { w.WriteAttributeString("collapsed", "1"); }
                 w.WriteEndElement();
             }
 
             w.WriteEndElement();
         }
 
-        // sheetData
-        // Rows come from merging the sorted cell keys with the sorted heights. Addresses and numbers are formatted into
-        // one scratch buffer: a sheet holds up to millions of cells, and a string for each would dominate the save.
+        // sheetData: rows come from merging the sorted cell keys with the sorted row properties. Addresses and numbers
+        // are formatted into one scratch buffer: a sheet holds up to millions of cells, and a string for each would
+        // dominate the save.
         w.WriteStartElement("sheetData", MainNs);
         var buffer = new char[64];
         var index = 0;
@@ -455,8 +625,16 @@ public sealed class XlsxWorkbook
             WriteNumberAttribute(w, "r", row, buffer);
             if (heightRow == row)
             {
-                w.WriteAttributeString("ht", Num(sheet.Heights[row]));
-                w.WriteAttributeString("customHeight", "1");
+                var line = sheet.Rows[row];
+                if (line.Size is double height)
+                {
+                    w.WriteAttributeString("ht", Num(height));
+                    w.WriteAttributeString("customHeight", "1");
+                }
+
+                if (line.Hidden) { w.WriteAttributeString("hidden", "1"); }
+                if (line.Level > 0) { w.WriteAttributeString("outlineLevel", Int(line.Level)); }
+                if (line.Collapsed) { w.WriteAttributeString("collapsed", "1"); }
                 nextHeight++;
             }
 
@@ -532,8 +710,9 @@ public sealed class XlsxWorkbook
             w.WriteEndElement();
         }
 
-        // A link inside the workbook needs no relationship: location is enough.
-        if (sheet.Links.Count > 0)
+        // A link inside the workbook needs no relationship: location is enough. A link outside names its relationship,
+        // which holds the address.
+        if (sheet.Links.Count > 0 || sheet.UrlLinks.Count > 0)
         {
             w.WriteStartElement("hyperlinks", MainNs);
             foreach (var link in sheet.Links)
@@ -545,21 +724,39 @@ public sealed class XlsxWorkbook
                 w.WriteEndElement();
             }
 
+            for (var i = 0; i < sheet.UrlLinks.Count; i++)
+            {
+                var link = sheet.UrlLinks[i];
+                w.WriteStartElement("hyperlink", MainNs);
+                w.WriteAttributeString("ref", CellName(link.Row, link.Col));
+                w.WriteAttributeString("id", RelNs, plan.LinkIds[i]);
+                w.WriteEndElement();
+            }
+
             w.WriteEndElement();
         }
 
+        if (sheet.PrintCenteredHorizontally || sheet.PrintCenteredVertically || sheet.PrintGridLines)
+        {
+            w.WriteStartElement("printOptions", MainNs);
+            if (sheet.PrintCenteredHorizontally) { w.WriteAttributeString("horizontalCentered", "1"); }
+            if (sheet.PrintCenteredVertically) { w.WriteAttributeString("verticalCentered", "1"); }
+            if (sheet.PrintGridLines) { w.WriteAttributeString("gridLines", "1"); }
+            w.WriteEndElement();
+        }
+
+        var margins = sheet.Margins;
         w.WriteStartElement("pageMargins", MainNs);
-        w.WriteAttributeString("left", "0.5");
-        w.WriteAttributeString("right", "0.5");
-        w.WriteAttributeString("top", "0.5");
-        w.WriteAttributeString("bottom", "0.5");
-        w.WriteAttributeString("header", "0.3");
-        w.WriteAttributeString("footer", "0.3");
+        w.WriteAttributeString("left", Inches(margins.Left));
+        w.WriteAttributeString("right", Inches(margins.Right));
+        w.WriteAttributeString("top", Inches(margins.Top));
+        w.WriteAttributeString("bottom", Inches(margins.Bottom));
+        w.WriteAttributeString("header", Inches(margins.Header));
+        w.WriteAttributeString("footer", Inches(margins.Footer));
         w.WriteEndElement();
 
-        // paperSize 9 = A4.
         w.WriteStartElement("pageSetup", MainNs);
-        w.WriteAttributeString("paperSize", "9");
+        w.WriteAttributeString("paperSize", Int((int)sheet.PaperSize));
         w.WriteAttributeString("orientation", sheet.Landscape ? "landscape" : "portrait");
         w.WriteAttributeString("fitToWidth", Int(sheet.FitWidth));
         w.WriteAttributeString("fitToHeight", Int(sheet.FitHeight));
@@ -585,11 +782,147 @@ public sealed class XlsxWorkbook
             w.WriteEndElement();
         }
 
-        // Charts and images: rId1 in the sheet relationships is the drawing layer.
-        if (sheet.Charts.Count > 0 || sheet.Images.Count > 0)
+        // Charts and images live in the drawing layer; notes in the legacy VML drawing right after it.
+        if (plan.DrawingId != null)
         {
             w.WriteStartElement("drawing", MainNs);
-            w.WriteAttributeString("id", RelNs, "rId1");
+            w.WriteAttributeString("id", RelNs, plan.DrawingId);
+            w.WriteEndElement();
+        }
+
+        if (plan.NoteShapesId != null)
+        {
+            w.WriteStartElement("legacyDrawing", MainNs);
+            w.WriteAttributeString("id", RelNs, plan.NoteShapesId);
+            w.WriteEndElement();
+        }
+
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// The comment list of a sheet: authors once each, then the notes in cell order.
+    /// </summary>
+    private void WriteComments(XmlWriter w, XlsxSheet sheet)
+    {
+        var authors = new List<string>();
+        foreach (var comment in sheet.Comments)
+        {
+            var author = comment.Author ?? Author ?? Application;
+            if (!authors.Contains(author))
+            {
+                authors.Add(author);
+            }
+        }
+
+        w.WriteStartElement("comments", MainNs);
+        w.WriteStartElement("authors", MainNs);
+        foreach (var author in authors)
+        {
+            w.WriteElementString("author", MainNs, StringTable.Clean(author));
+        }
+
+        w.WriteEndElement();
+        w.WriteStartElement("commentList", MainNs);
+        foreach (var comment in sheet.Comments)
+        {
+            w.WriteStartElement("comment", MainNs);
+            w.WriteAttributeString("ref", CellName(comment.Row, comment.Column));
+            w.WriteAttributeString("authorId", Int(authors.IndexOf(comment.Author ?? Author ?? Application)));
+            w.WriteStartElement("text", MainNs);
+            w.WriteStartElement("t", MainNs);
+            w.WriteAttributeString("xml", "space", null, "preserve");
+            w.WriteString(StringTable.Clean(comment.Text));
+            w.WriteEndElement();
+            w.WriteEndElement();
+            w.WriteEndElement();
+        }
+
+        w.WriteEndElement();
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// The VML shapes Excel draws notes with: one hidden yellow box per note, anchored next to its cell. Excel shows no
+    /// note without its shape, although the text lives in the comment list.
+    /// </summary>
+    /// <param name="w">The writer.</param>
+    /// <param name="sheet">The sheet.</param>
+    /// <param name="block">Number of the VML part; shape ids are counted in blocks of 1024 per part.</param>
+    private static void WriteNoteShapes(XmlWriter w, XlsxSheet sheet, int block)
+    {
+        const string V = "urn:schemas-microsoft-com:vml";
+        const string O = "urn:schemas-microsoft-com:office:office";
+        const string X = "urn:schemas-microsoft-com:office:excel";
+        w.WriteStartElement("xml");
+        w.WriteAttributeString("xmlns", "v", null, V);
+        w.WriteAttributeString("xmlns", "o", null, O);
+        w.WriteAttributeString("xmlns", "x", null, X);
+
+        w.WriteStartElement("o", "shapelayout", O);
+        w.WriteAttributeString("v", "ext", V, "edit");
+        w.WriteStartElement("o", "idmap", O);
+        w.WriteAttributeString("v", "ext", V, "edit");
+        w.WriteAttributeString("data", Int(block));
+        w.WriteEndElement();
+        w.WriteEndElement();
+
+        // Shape type 202 is a text box.
+        w.WriteStartElement("v", "shapetype", V);
+        w.WriteAttributeString("id", "_x0000_t202");
+        w.WriteAttributeString("coordsize", "21600,21600");
+        w.WriteAttributeString("o", "spt", O, "202");
+        w.WriteAttributeString("path", "m,l,21600r21600,l21600,xe");
+        w.WriteStartElement("v", "stroke", V);
+        w.WriteAttributeString("joinstyle", "miter");
+        w.WriteEndElement();
+        w.WriteStartElement("v", "path", V);
+        w.WriteAttributeString("gradientshapeok", "t");
+        w.WriteAttributeString("o", "connecttype", O, "rect");
+        w.WriteEndElement();
+        w.WriteEndElement();
+
+        var shape = block * 1024;
+        foreach (var comment in sheet.Comments)
+        {
+            w.WriteStartElement("v", "shape", V);
+            w.WriteAttributeString("id", "_x0000_s" + Int(++shape));
+            w.WriteAttributeString("type", "#_x0000_t202");
+            w.WriteAttributeString("style", "position:absolute;margin-left:60pt;margin-top:2pt;width:144pt;height:72pt;z-index:" + Int(shape - block * 1024) + ";visibility:hidden");
+            w.WriteAttributeString("fillcolor", "#ffffe1");
+            w.WriteAttributeString("o", "insetmode", O, "auto");
+            w.WriteStartElement("v", "fill", V);
+            w.WriteAttributeString("color2", "#ffffe1");
+            w.WriteEndElement();
+            w.WriteStartElement("v", "shadow", V);
+            w.WriteAttributeString("on", "t");
+            w.WriteAttributeString("color", "black");
+            w.WriteAttributeString("obscured", "t");
+            w.WriteEndElement();
+            w.WriteStartElement("v", "path", V);
+            w.WriteAttributeString("o", "connecttype", O, "none");
+            w.WriteEndElement();
+            w.WriteStartElement("v", "textbox", V);
+            w.WriteAttributeString("style", "mso-direction-alt:auto");
+            w.WriteStartElement("div");
+            w.WriteAttributeString("style", "text-align:left");
+            w.WriteEndElement();
+            w.WriteEndElement();
+
+            // Anchor: column, x offset, row, y offset of the top-left and bottom-right corners, zero-based. The box
+            // starts one column right of the cell and spans two columns and four rows.
+            var row = comment.Row - 1;
+            var column = comment.Column - 1;
+            w.WriteStartElement("x", "ClientData", X);
+            w.WriteAttributeString("ObjectType", "Note");
+            w.WriteElementString("x", "MoveWithCells", X, string.Empty);
+            w.WriteElementString("x", "SizeWithCells", X, string.Empty);
+            w.WriteElementString("x", "Anchor", X,
+                Int(column + 1) + ", 15, " + Int(Math.Max(0, row - 1)) + ", 10, " + Int(column + 3) + ", 15, " + Int(Math.Max(0, row - 1) + 4) + ", 4");
+            w.WriteElementString("x", "AutoFill", X, "False");
+            w.WriteElementString("x", "Row", X, Int(row));
+            w.WriteElementString("x", "Column", X, Int(column));
+            w.WriteEndElement();
             w.WriteEndElement();
         }
 
@@ -625,6 +958,11 @@ public sealed class XlsxWorkbook
             w.WriteStartElement("v", MainNs);
             w.WriteChars(buffer, 0, FormatInt(buffer, 0, strings.Index(text)));
             w.WriteEndElement();
+        }
+        else if (cell.Value is bool flag)
+        {
+            w.WriteAttributeString("t", "b");
+            w.WriteElementString("v", MainNs, flag ? "1" : "0");
         }
         else if (cell.Value is double number)
         {
@@ -737,8 +1075,11 @@ public sealed class XlsxWorkbook
         w.WriteStartElement("workbook", MainNs);
         w.WriteAttributeString("xmlns", "r", null, RelNs);
         w.WriteStartElement("bookViews", MainNs);
+        // firstSheet is the leftmost tab shown in the tab bar; a hidden one there leaves the bar looking empty.
         w.WriteStartElement("workbookView", MainNs);
-        w.WriteAttributeString("activeTab", "0");
+        var first = _sheets.FindIndex(s => s.Visibility == XlsxSheetVisibility.Visible);
+        if (first > 0) { w.WriteAttributeString("firstSheet", Int(first)); }
+        w.WriteAttributeString("activeTab", Int(_active));
         w.WriteEndElement();
         w.WriteEndElement();
         w.WriteStartElement("sheets", MainNs);
@@ -747,17 +1088,30 @@ public sealed class XlsxWorkbook
             w.WriteStartElement("sheet", MainNs);
             w.WriteAttributeString("name", _sheets[i].Name);
             w.WriteAttributeString("sheetId", Int(i + 1));
+            if (_sheets[i].Visibility == XlsxSheetVisibility.Hidden) { w.WriteAttributeString("state", "hidden"); }
+            if (_sheets[i].Visibility == XlsxSheetVisibility.VeryHidden) { w.WriteAttributeString("state", "veryHidden"); }
             w.WriteAttributeString("id", RelNs, "rId" + (i + 1));
             w.WriteEndElement();
         }
 
         w.WriteEndElement();
 
-        // Print area and print titles: reserved names bound to the sheet (_xlnm.Print_Area, _xlnm.Print_Titles).
+        // The caller's names, then print area and print titles: reserved names bound to the sheet (_xlnm.Print_Area,
+        // _xlnm.Print_Titles).
         var named = _sheets.Where(s => s.PrintTitleRows != null || s.PrintArea != null).ToList();
-        if (named.Count > 0)
+        if (named.Count > 0 || _names.Count > 0)
         {
             w.WriteStartElement("definedNames", MainNs);
+            foreach (var name in _names)
+            {
+                w.WriteStartElement("definedName", MainNs);
+                w.WriteAttributeString("name", name.Name);
+                if (name.Scope != null) { w.WriteAttributeString("localSheetId", Int(_sheets.IndexOf(name.Scope))); }
+                w.WriteString("'" + name.Sheet.Name.Replace("'", "''") + "'!$" + ColumnName(name.Col1) + "$" + Int(name.Row1)
+                    + (name.Row1 == name.Row2 && name.Col1 == name.Col2 ? string.Empty : ":$" + ColumnName(name.Col2) + "$" + Int(name.Row2)));
+                w.WriteEndElement();
+            }
+
             foreach (var sheet in named)
             {
                 var quoted = "'" + sheet.Name.Replace("'", "''") + "'!";
@@ -816,6 +1170,11 @@ public sealed class XlsxWorkbook
         Default(w, "rels", "application/vnd.openxmlformats-package.relationships+xml");
         Default(w, "xml", "application/xml");
         Default(w, "png", "image/png");
+        if (_notes > 0)
+        {
+            Default(w, "vml", "application/vnd.openxmlformats-officedocument.vmlDrawing");
+        }
+
         Override(w, "/xl/workbook.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml");
         for (var i = 0; i < _sheets.Count; i++)
         {
@@ -830,6 +1189,11 @@ public sealed class XlsxWorkbook
         for (var i = 1; i <= _charts; i++)
         {
             Override(w, "/xl/charts/chart" + i + ".xml", "application/vnd.openxmlformats-officedocument.drawingml.chart+xml");
+        }
+
+        for (var i = 1; i <= _notes; i++)
+        {
+            Override(w, "/xl/comments" + i + ".xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml");
         }
 
         Override(w, "/xl/styles.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml");
@@ -873,12 +1237,13 @@ public sealed class XlsxWorkbook
         w.WriteEndElement();
     }
 
-    private static void Relationship(XmlWriter w, string id, string type, string target)
+    private static void Relationship(XmlWriter w, string id, string type, string target, bool external = false)
     {
         w.WriteStartElement("Relationship", PackageRelNs);
         w.WriteAttributeString("Id", id);
         w.WriteAttributeString("Type", type);
         w.WriteAttributeString("Target", target);
+        if (external) { w.WriteAttributeString("TargetMode", "External"); }
         w.WriteEndElement();
     }
 
@@ -903,6 +1268,87 @@ public sealed class XlsxWorkbook
     #region Helpers
 
     private static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Excel's rules for a defined name: letter, underscore or backslash first, then letters, digits, underscores, dots
+    /// and backslashes; at most 255 characters; not a cell address in either notation; not a reserved name.
+    /// </summary>
+    private static bool IsDefinedName(string name)
+    {
+        if (name.Length == 0 || name.Length > 255 || name.StartsWith("_xlnm.", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!(char.IsLetter(name[0]) || name[0] == '_' || name[0] == '\\'))
+        {
+            return false;
+        }
+
+        foreach (var ch in name)
+        {
+            if (!(char.IsLetterOrDigit(ch) || ch == '_' || ch == '.' || ch == '\\'))
+            {
+                return false;
+            }
+        }
+
+        return !LooksLikeA1(name) && !LooksLikeR1C1(name);
+    }
+
+    /// <summary>
+    /// Letters of an existing column (up to XFD) followed by digits: <c>B3</c>, <c>XFD1</c>.
+    /// </summary>
+    private static bool LooksLikeA1(string name)
+    {
+        var letters = 0;
+        var column = 0;
+        while (letters < name.Length && letters < 4 && IsAsciiLetter(name[letters]))
+        {
+            column = (column * 26) + (char.ToUpperInvariant(name[letters]) - 'A' + 1);
+            letters++;
+        }
+
+        if (letters == 0 || letters == name.Length || column > XlsxSheet.MaxColumn)
+        {
+            return false;
+        }
+
+        for (var i = letters; i < name.Length; i++)
+        {
+            if (name[i] < '0' || name[i] > '9')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// <c>R</c>, <c>C</c>, <c>R1</c>, <c>C2</c>, <c>R1C2</c> and the like, in any case.
+    /// </summary>
+    private static bool LooksLikeR1C1(string name)
+    {
+        var i = 0;
+        var parts = 0;
+        foreach (var letter in new[] { 'R', 'C' })
+        {
+            if (i < name.Length && char.ToUpperInvariant(name[i]) == letter)
+            {
+                i++;
+                parts++;
+                while (i < name.Length && name[i] >= '0' && name[i] <= '9')
+                {
+                    i++;
+                }
+            }
+        }
+
+        return parts > 0 && i == name.Length;
+    }
+
+    private static bool IsAsciiLetter(char ch) => (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
 
     private static void Cfvo(XmlWriter w, string type, string? value)
     {
@@ -933,6 +1379,11 @@ public sealed class XlsxWorkbook
     private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
     /// <summary>
+    /// A margin in inches; four decimals keep margins given in centimetres exact to a hundredth of a millimetre.
+    /// </summary>
+    private static string Inches(double value) => Math.Max(0, value).ToString("0.####", CultureInfo.InvariantCulture);
+
+    /// <summary>
     /// <c>#RRGGBB</c> → Excel's <c>FFRRGGBB</c>.
     /// </summary>
     internal static string Argb(string color)
@@ -949,6 +1400,35 @@ public sealed class XlsxWorkbook
     #endregion
 
     #region Tables
+
+    /// <summary>
+    /// Parts and relationship ids of one sheet; numbers 0 mean the sheet has no such part.
+    /// </summary>
+    private sealed class SheetPlan
+    {
+        public readonly List<(string Id, string Type, string Target, bool External)> Relationships =
+            new List<(string, string, string, bool)>();
+
+        /// <summary>
+        /// Relationship ids of the URL links, in the order of <see cref="XlsxSheet.UrlLinks"/>.
+        /// </summary>
+        public readonly List<string> LinkIds = new List<string>();
+
+        public int Drawing;
+
+        public int Comments;
+
+        public string? DrawingId;
+
+        public string? NoteShapesId;
+
+        public string Add(string type, string target, bool external)
+        {
+            var id = "rId" + Int(Relationships.Count + 1);
+            Relationships.Add((id, type, target, external));
+            return id;
+        }
+    }
 
     /// <summary>
     /// Shared strings: each distinct text once, in order of first use.
@@ -997,7 +1477,7 @@ public sealed class XlsxWorkbook
         /// <summary>
         /// Drops control characters that XML cannot hold (tab and line feed stay); XmlWriter throws on them.
         /// </summary>
-        private static string Clean(string text)
+        public static string Clean(string text)
         {
             StringBuilder? sb = null;
             for (var i = 0; i < text.Length; i++)
@@ -1097,7 +1577,8 @@ public sealed class XlsxWorkbook
                 w.WriteEndElement();
             }
 
-            // Fonts: key "name|size|B|I|U|colour".
+            // Fonts: key "name|size|bold|italic|underline|colour|strike|script"; underline 1 single, 2 double; script 1
+            // superscript, 2 subscript. Children in the order Excel writes them.
             w.WriteStartElement("fonts", MainNs);
             w.WriteAttributeString("count", Int(_fonts.Count));
             foreach (var key in _fonts)
@@ -1106,7 +1587,16 @@ public sealed class XlsxWorkbook
                 w.WriteStartElement("font", MainNs);
                 if (p[2] == "1") { w.WriteElementString("b", MainNs, null); }
                 if (p[3] == "1") { w.WriteElementString("i", MainNs, null); }
+                if (p[6] == "1") { w.WriteElementString("strike", MainNs, null); }
                 if (p[4] == "1") { w.WriteElementString("u", MainNs, null); }
+                if (p[4] == "2") { w.WriteStartElement("u", MainNs); w.WriteAttributeString("val", "double"); w.WriteEndElement(); }
+                if (p[7] != "0")
+                {
+                    w.WriteStartElement("vertAlign", MainNs);
+                    w.WriteAttributeString("val", p[7] == "1" ? "superscript" : "subscript");
+                    w.WriteEndElement();
+                }
+
                 w.WriteStartElement("sz", MainNs); w.WriteAttributeString("val", p[1]); w.WriteEndElement();
                 if (p[5].Length > 0) { w.WriteStartElement("color", MainNs); w.WriteAttributeString("rgb", p[5]); w.WriteEndElement(); }
                 w.WriteStartElement("name", MainNs); w.WriteAttributeString("val", p[0]); w.WriteEndElement();
@@ -1177,14 +1667,20 @@ public sealed class XlsxWorkbook
                 if (xf.Font != 0) { w.WriteAttributeString("applyFont", "1"); }
                 if (xf.Fill != 0) { w.WriteAttributeString("applyFill", "1"); }
                 if (xf.Border != 0) { w.WriteAttributeString("applyBorder", "1"); }
-                var aligned = s.Horizontal != null || s.Vertical != null || s.Wrap;
+                var aligned = s.Horizontal != null || s.Vertical != null || s.Wrap || s.ShrinkToFit || s.Indent > 0 || s.Rotation != 0;
                 if (aligned)
                 {
                     w.WriteAttributeString("applyAlignment", "1");
                     w.WriteStartElement("alignment", MainNs);
-                    if (s.Horizontal != null) { w.WriteAttributeString("horizontal", s.Horizontal); }
+
+                    // An indent needs an edge to count from; Excel itself picks left.
+                    var horizontal = s.Horizontal ?? (s.Indent > 0 ? "left" : null);
+                    if (horizontal != null) { w.WriteAttributeString("horizontal", horizontal); }
                     if (s.Vertical != null) { w.WriteAttributeString("vertical", s.Vertical); }
+                    if (s.Rotation != 0) { w.WriteAttributeString("textRotation", Int(TextRotation(s.Rotation))); }
                     if (s.Wrap) { w.WriteAttributeString("wrapText", "1"); }
+                    if (s.Indent > 0) { w.WriteAttributeString("indent", Int(Math.Min(s.Indent, 250))); }
+                    if (s.ShrinkToFit) { w.WriteAttributeString("shrinkToFit", "1"); }
                     w.WriteEndElement();
                 }
 
@@ -1205,8 +1701,23 @@ public sealed class XlsxWorkbook
 
         private string FontKey(XlsxStyle s) =>
             (s.FontName ?? _book.DefaultFontName) + "|" + Num(s.FontSize > 0 ? s.FontSize : _book.DefaultFontSize) + "|"
-            + (s.Bold ? "1" : "0") + "|" + (s.Italic ? "1" : "0") + "|" + (s.Underline ? "1" : "0") + "|"
-            + (s.FontColor == null ? string.Empty : Argb(s.FontColor));
+            + (s.Bold ? "1" : "0") + "|" + (s.Italic ? "1" : "0") + "|" + (s.DoubleUnderline ? "2" : s.Underline ? "1" : "0") + "|"
+            + (s.FontColor == null ? string.Empty : Argb(s.FontColor)) + "|" + (s.Strikethrough ? "1" : "0") + "|"
+            + Int((int)s.Script);
+
+        /// <summary>
+        /// Degrees to Excel's textRotation: 0–90 counter-clockwise, 91–180 for 1–90 clockwise, 255 stacked.
+        /// </summary>
+        private static int TextRotation(int degrees)
+        {
+            if (degrees == XlsxStyle.VerticalText)
+            {
+                return degrees;
+            }
+
+            degrees = Math.Max(-90, Math.Min(90, degrees));
+            return degrees >= 0 ? degrees : 90 - degrees;
+        }
 
         private static string BorderKey(XlsxStyle s) => Edge(s.Left) + "|" + Edge(s.Right) + "|" + Edge(s.Top) + "|" + Edge(s.Bottom);
 

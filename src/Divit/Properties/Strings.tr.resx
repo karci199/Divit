@@ -39,4 +39,28 @@
   <data name="ColorInvalid" xml:space="preserve">
     <value>Renk #RRGGBB olmalı: &quot;{0}&quot;.</value>
   </data>
+  <data name="DateOutOfRange" xml:space="preserve">
+    <value>Excel tarihleri 1900-01-01 ile başlar: {0}.</value>
+  </data>
+  <data name="LinkEmpty" xml:space="preserve">
+    <value>Bağlantının bir adresi olmalı.</value>
+  </data>
+  <data name="GroupRangeReversed" xml:space="preserve">
+    <value>Grup aralığı ters: ilk satır ya da sütun sonuncudan sonra geliyor.</value>
+  </data>
+  <data name="NoVisibleSheet" xml:space="preserve">
+    <value>Bütün sayfalar gizli; Excel en az bir görünür sayfa ister.</value>
+  </data>
+  <data name="ActiveSheetHidden" xml:space="preserve">
+    <value>Etkin sayfa görünür olmalı: &quot;{0}&quot;.</value>
+  </data>
+  <data name="SheetNotInWorkbook" xml:space="preserve">
+    <value>Sayfa başka bir kitaba ait: &quot;{0}&quot;.</value>
+  </data>
+  <data name="DefinedNameInvalid" xml:space="preserve">
+    <value>Kullanılamayan ad: &quot;{0}&quot;. Ad harf ya da alt çizgiyle başlar; harf, rakam, alt çizgi ve nokta içerir; hücre adresi olamaz.</value>
+  </data>
+  <data name="DefinedNameDuplicate" xml:space="preserve">
+    <value>Bu adla bir ad zaten var: &quot;{0}&quot;.</value>
+  </data>
 </root>

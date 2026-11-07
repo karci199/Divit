@@ -34,9 +34,24 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
     public bool Italic;
 
     /// <summary>
-    /// Underlined text.
+    /// Underlined text; see <see cref="DoubleUnderline"/> for two lines.
     /// </summary>
     public bool Underline;
+
+    /// <summary>
+    /// Underlined with two lines; wins over <see cref="Underline"/>.
+    /// </summary>
+    public bool DoubleUnderline;
+
+    /// <summary>
+    /// Struck-through text.
+    /// </summary>
+    public bool Strikethrough;
+
+    /// <summary>
+    /// Superscript or subscript text; normal when <see cref="XlsxScript.None"/>.
+    /// </summary>
+    public XlsxScript Script;
 
     /// <summary>
     /// Text colour as <c>#RRGGBB</c>; black when empty.
@@ -64,6 +79,23 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
     public bool Wrap;
 
     /// <summary>
+    /// Shrinks the font until the text fits the cell width; Excel ignores it when <see cref="Wrap"/> is set.
+    /// </summary>
+    public bool ShrinkToFit;
+
+    /// <summary>
+    /// Indent from the aligned edge, in steps of about three spaces (0–250). Takes effect with left, right or
+    /// distributed alignment; with no alignment set, left is used.
+    /// </summary>
+    public int Indent;
+
+    /// <summary>
+    /// Text angle in degrees: positive turns counter-clockwise (up to 90), negative clockwise (down to -90). Use
+    /// <see cref="VerticalText"/> for letters stacked top to bottom.
+    /// </summary>
+    public int Rotation;
+
+    /// <summary>
     /// Number format as an Excel code (for example <c>0.00</c>); General when empty.
     /// </summary>
     public string? NumberFormat;
@@ -89,6 +121,11 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
     public XlsxBorder Bottom;
 
     /// <summary>
+    /// Value of <see cref="Rotation"/> that stacks the letters vertically, one under the other.
+    /// </summary>
+    public const int VerticalText = 255;
+
+    /// <summary>
     /// Whether no field is set (the workbook's default style, number 0).
     /// </summary>
     public bool IsDefault => Equals(default(XlsxStyle));
@@ -96,8 +133,10 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
     /// <inheritdoc />
     public bool Equals(XlsxStyle other) =>
         FontName == other.FontName && FontSize.Equals(other.FontSize) && Bold == other.Bold && Italic == other.Italic
-        && Underline == other.Underline && FontColor == other.FontColor && Fill == other.Fill
+        && Underline == other.Underline && DoubleUnderline == other.DoubleUnderline && Strikethrough == other.Strikethrough
+        && Script == other.Script && FontColor == other.FontColor && Fill == other.Fill
         && Horizontal == other.Horizontal && Vertical == other.Vertical && Wrap == other.Wrap
+        && ShrinkToFit == other.ShrinkToFit && Indent == other.Indent && Rotation == other.Rotation
         && NumberFormat == other.NumberFormat && Left.Equals(other.Left) && Right.Equals(other.Right)
         && Top.Equals(other.Top) && Bottom.Equals(other.Bottom);
 
@@ -110,7 +149,9 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
         unchecked
         {
             var h = (FontName?.GetHashCode() ?? 0) * 397 ^ FontSize.GetHashCode();
-            h = h * 397 ^ (Bold ? 1 : 0) ^ (Italic ? 2 : 0) ^ (Underline ? 4 : 0) ^ (Wrap ? 8 : 0);
+            h = h * 397 ^ (Bold ? 1 : 0) ^ (Italic ? 2 : 0) ^ (Underline ? 4 : 0) ^ (Wrap ? 8 : 0)
+                ^ (DoubleUnderline ? 16 : 0) ^ (Strikethrough ? 32 : 0) ^ (ShrinkToFit ? 64 : 0) ^ ((int)Script << 7);
+            h = h * 397 ^ Indent ^ (Rotation << 8);
             h = h * 397 ^ (FontColor?.GetHashCode() ?? 0);
             h = h * 397 ^ (Fill?.GetHashCode() ?? 0);
             h = h * 397 ^ (Horizontal?.GetHashCode() ?? 0);
@@ -120,6 +161,27 @@ public struct XlsxStyle : IEquatable<XlsxStyle>
             return h;
         }
     }
+}
+
+/// <summary>
+/// Vertical position of text against the line: normal, raised and small, or lowered and small.
+/// </summary>
+public enum XlsxScript
+{
+    /// <summary>
+    /// Normal text on the line.
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// Raised small text (x²).
+    /// </summary>
+    Superscript,
+
+    /// <summary>
+    /// Lowered small text (H₂O).
+    /// </summary>
+    Subscript,
 }
 
 /// <summary>
