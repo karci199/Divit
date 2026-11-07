@@ -365,6 +365,39 @@ internal sealed class DocxRun
     /// A footnote: the mark in the text, and the note's text at the foot of the page.
     /// </summary>
     public string? Footnote { get; set; }
+
+    /// <summary>
+    /// A tracked change: the text was inserted or deleted, by whom and when.
+    /// </summary>
+    public DocxRevision Revision { get; set; }
+
+    public string? RevisionAuthor { get; set; }
+
+    public DateTime? RevisionDate { get; set; }
+
+    /// <summary>
+    /// An equation, in the line or as a paragraph of its own.
+    /// </summary>
+    public DocxMath? Math { get; set; }
+
+    public bool MathDisplay { get; set; }
+
+    /// <summary>
+    /// A citation of a source, with the pages cited.
+    /// </summary>
+    public DocxSource? Citation { get; set; }
+
+    public string? CitedPages { get; set; }
+}
+
+/// <summary>
+/// The kind of a tracked change.
+/// </summary>
+internal enum DocxRevision
+{
+    None,
+    Insertion,
+    Deletion,
 }
 
 /// <summary>
@@ -381,6 +414,11 @@ public enum DocxCaptionKind
     /// A table: "Table 1".
     /// </summary>
     Table,
+
+    /// <summary>
+    /// An equation: "(1)" at the right margin (<see cref="DocxDocument.AddEquation"/>).
+    /// </summary>
+    Equation,
 }
 
 /// <summary>
@@ -508,6 +546,11 @@ public sealed class DocxParagraph : DocxBlock
             var text = new System.Text.StringBuilder();
             foreach (var run in _runs)
             {
+                if (run.Revision == DocxRevision.Deletion)
+                {
+                    continue;
+                }
+
                 text.Append(run.Text);
                 if (run.Tab) { text.Append('\t'); }
                 if (run.LineBreak) { text.Append('\n'); }
@@ -711,6 +754,68 @@ public sealed class DocxParagraph : DocxBlock
         _runs.Add(new DocxRun { Footnote = text ?? string.Empty });
         return this;
     }
+
+    /// <summary>
+    /// Adds text as a tracked insertion: Word shows it as a proposed change that a reviewer accepts or rejects.
+    /// </summary>
+    /// <param name="text">The inserted text.</param>
+    /// <param name="author">Who made the change; the document's author when empty.</param>
+    /// <param name="date">When (UTC); the document's creation time when empty.</param>
+    /// <param name="font">Its font; the paragraph's when empty.</param>
+    /// <returns>This paragraph.</returns>
+    public DocxParagraph AddInsertion(string text, string? author = null, DateTime? date = null, DocxFont? font = null)
+    {
+        _runs.Add(new DocxRun { Text = text ?? string.Empty, Revision = DocxRevision.Insertion, RevisionAuthor = author, RevisionDate = date, Font = font });
+        return this;
+    }
+
+    /// <summary>
+    /// Adds text as a tracked deletion: struck through until a reviewer accepts the change, which removes it.
+    /// </summary>
+    /// <param name="text">The deleted text.</param>
+    /// <param name="author">Who made the change; the document's author when empty.</param>
+    /// <param name="date">When (UTC); the document's creation time when empty.</param>
+    /// <param name="font">Its font; the paragraph's when empty.</param>
+    /// <returns>This paragraph.</returns>
+    public DocxParagraph AddDeletion(string text, string? author = null, DateTime? date = null, DocxFont? font = null)
+    {
+        _runs.Add(new DocxRun { Text = text ?? string.Empty, Revision = DocxRevision.Deletion, RevisionAuthor = author, RevisionDate = date, Font = font });
+        return this;
+    }
+
+    /// <summary>
+    /// Adds an equation in the line of text; <see cref="DocxDocument.AddEquation"/> sets one apart.
+    /// </summary>
+    /// <param name="math">The equation.</param>
+    /// <param name="font">Its size and colour; the paragraph's when empty.</param>
+    /// <returns>This paragraph.</returns>
+    public DocxParagraph AddEquation(DocxMath math, DocxFont? font = null)
+    {
+        _runs.Add(new DocxRun { Math = math ?? throw new ArgumentNullException(nameof(math)), Font = font });
+        return this;
+    }
+
+    /// <summary>
+    /// Cites a source of the document's bibliography: "[1]" or "(Balanis, 2016)" in the document's
+    /// <see cref="DocxDocument.BibliographyStyle"/>. Word keeps it up to date with the fields.
+    /// </summary>
+    /// <param name="source">The source (<see cref="DocxDocument.AddSource"/>).</param>
+    /// <param name="pages">The pages cited, such as <c>12–14</c>; none when empty.</param>
+    /// <returns>This paragraph.</returns>
+    public DocxParagraph AddCitation(DocxSource source, string? pages = null)
+    {
+        _runs.Add(new DocxRun { Citation = source ?? throw new ArgumentNullException(nameof(source)), CitedPages = pages });
+        return this;
+    }
+
+    internal void AddDisplayMath(DocxMath math) => _runs.Add(new DocxRun { Math = math, MathDisplay = true });
+
+    /// <summary>
+    /// The runs that make a caption's label and number ("Figure 3", "(2)"), which a label reference shows.
+    /// </summary>
+    internal int LabelStart { get; set; }
+
+    internal int LabelCount { get; set; } = 2;
 
     /// <summary>
     /// The list the paragraph is an item of, and its depth.

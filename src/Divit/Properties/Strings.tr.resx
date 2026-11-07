@@ -141,4 +141,10 @@
   <data name="ReferenceTargetMissing" xml:space="preserve">
     <value>Bir çapraz başvuru veya bağlantı, belgenin gövdesinde olmayan bir paragrafı gösteriyor.</value>
   </data>
+  <data name="SourceTagInvalid" xml:space="preserve">
+    <value>Bir kaynak etiketi boşluk, tırnak ve ters eğik çizgi içermeyen, belgede tek olan bir sözcüktür.</value>
+  </data>
+  <data name="SourceNotInDocument" xml:space="preserve">
+    <value>Bir kaynak gösterme başka bir belgenin kaynağını gösteriyor.</value>
+  </data>
 </root>

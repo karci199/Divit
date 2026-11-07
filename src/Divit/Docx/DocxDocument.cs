@@ -33,6 +33,15 @@ public sealed partial class DocxDocument
 
     private int _tables;
 
+    private int _equations;
+
+    /// <summary>
+    /// The sources of the bibliography in order, and their tags.
+    /// </summary>
+    private readonly List<DocxSource> _sources = new List<DocxSource>();
+
+    private readonly HashSet<string> _sourceTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Creates an empty document with one A4 section.
     /// </summary>
@@ -224,8 +233,8 @@ public sealed partial class DocxDocument
     /// <returns>The caption paragraph.</returns>
     public DocxParagraph AddCaption(DocxCaptionKind kind, string text)
     {
-        var number = kind == DocxCaptionKind.Figure ? ++_figures : ++_tables;
-        var label = kind == DocxCaptionKind.Figure ? Look.FigureLabel : Look.TableLabel;
+        var number = kind == DocxCaptionKind.Figure ? ++_figures : kind == DocxCaptionKind.Table ? ++_tables : ++_equations;
+        var label = kind == DocxCaptionKind.Figure ? Look.FigureLabel : kind == DocxCaptionKind.Table ? Look.TableLabel : SequenceName(kind);
         var paragraph = Section.AddParagraph(label + " ", null, DocxStyle.Caption);
         paragraph.AddFieldRun(" SEQ " + SequenceName(kind) + " \\* ARABIC ", Int(number));
         paragraph.Add(Look.CaptionSeparator + text);
@@ -234,6 +243,97 @@ public sealed partial class DocxDocument
         paragraph.CaptionLabel = label + " " + Int(number);
         paragraph.KeepWithNext = kind == DocxCaptionKind.Table;
         return paragraph;
+    }
+
+    /// <summary>
+    /// Adds an equation set apart in a paragraph of its own: centred, or with a number "(1)" at the right margin
+    /// that Word keeps in order and a <see cref="DocxReferenceKind.Label"/> reference can show.
+    /// </summary>
+    /// <param name="math">The equation.</param>
+    /// <param name="numbered">Gives it a number.</param>
+    /// <returns>The equation's paragraph; with a number, the number's, which a reference points at.</returns>
+    public DocxParagraph AddEquation(DocxMath math, bool numbered = false)
+    {
+        if (math == null)
+        {
+            throw new ArgumentNullException(nameof(math));
+        }
+
+        if (!numbered)
+        {
+            var paragraph = Section.AddParagraph();
+            paragraph.AddDisplayMath(math);
+            return paragraph;
+        }
+
+        // A line with the number beside the equation would set it small, as math in running text; a table without
+        // lines keeps it at full size, centred, with the number at the right margin.
+        var width = Section.TextWidthTwips * 2.54 / 1440;
+        var table = Section.AddTable(3).SetColumnWidths(1.5, width - 3, 1.5);
+        table.Look = DocxTableLook.Plain;
+        var row = table.AddRow();
+        row.Cells[1].VerticalAlignment = DocxCellAlignment.Center;
+        row.Cells[1].AddParagraph().AddDisplayMath(math);
+        row.Cells[2].VerticalAlignment = DocxCellAlignment.Center;
+        var label = row.Cells[2].AddParagraph();
+        label.Alignment = DocxAlignment.Right;
+        var number = Int(++_equations);
+        label.Add("(");
+        label.AddFieldRun(" SEQ " + SequenceName(DocxCaptionKind.Equation) + " \\* ARABIC ", number);
+        label.Add(")");
+        label.Caption = DocxCaptionKind.Equation;
+        label.CaptionLabel = "(" + number + ")";
+        label.CaptionText = label.CaptionLabel;
+        label.LabelCount = 3;
+        return label;
+    }
+
+    /// <summary>
+    /// How citations and the bibliography are written.
+    /// </summary>
+    public DocxBibliographyStyle BibliographyStyle { get; set; }
+
+    /// <summary>
+    /// The sources of the bibliography in order.
+    /// </summary>
+    public IReadOnlyList<DocxSource> Sources => _sources;
+
+    /// <summary>
+    /// Adds a source to the document's bibliography, where Word's source manager shows it; cite it with
+    /// <see cref="DocxParagraph.AddCitation"/>.
+    /// </summary>
+    /// <param name="tag">Short name, unique in the document, without spaces, for example <c>Balanis2016</c>.</param>
+    /// <param name="kind">The kind of source.</param>
+    /// <param name="title">Its title.</param>
+    /// <returns>The source, to add authors and details.</returns>
+    /// <exception cref="ArgumentException">The tag is empty, has spaces or is taken.</exception>
+    public DocxSource AddSource(string tag, DocxSourceKind kind, string title)
+    {
+        if (string.IsNullOrEmpty(tag) || tag.IndexOfAny(new[] { ' ', '\t', '\\', '"' }) >= 0 || !_sourceTags.Add(tag))
+        {
+            throw new ArgumentException(Divit.Properties.Messages.Get(Divit.Properties.Strings.SourceTagInvalid), nameof(tag));
+        }
+
+        var source = new DocxSource(tag, kind, title ?? string.Empty) { Number = _sources.Count + 1 };
+        _sources.Add(source);
+        return source;
+    }
+
+    /// <summary>
+    /// Adds the bibliography: the document's sources, which Word writes out in the bibliography style.
+    /// </summary>
+    /// <param name="title">Title above the list, not numbered; none when empty.</param>
+    /// <returns>The bibliography.</returns>
+    public DocxBibliography AddBibliography(string? title = "References")
+    {
+        if (title != null)
+        {
+            Section.AddParagraph(title, null, TocHeadingStyle);
+        }
+
+        var bibliography = new DocxBibliography();
+        Section.AddBlock(bibliography);
+        return bibliography;
     }
 
     /// <summary>
@@ -257,7 +357,7 @@ public sealed partial class DocxDocument
     /// <summary>
     /// The field name that counts a caption kind; Word's own, so its Insert Caption continues the numbering.
     /// </summary>
-    private static string SequenceName(DocxCaptionKind kind) => kind == DocxCaptionKind.Figure ? "Figure" : "Table";
+    private static string SequenceName(DocxCaptionKind kind) => kind == DocxCaptionKind.Figure ? "Figure" : kind == DocxCaptionKind.Table ? "Table" : "Equation";
 
     /// <summary>
     /// Writes the document; an existing target is replaced only once the new file is complete.
@@ -290,6 +390,15 @@ public sealed partial class DocxDocument
             if (parts.Footnotes.Count > 0)
             {
                 package.XmlPart("word/footnotes.xml", w => WriteFootnotes(w, parts));
+            }
+
+            if (_sources.Count > 0)
+            {
+                package.XmlPart("customXml/item1.xml", WriteSources);
+                package.XmlPart("customXml/itemProps1.xml", WriteSourceProperties);
+                var item = new RelationshipList();
+                item.Add(RelType + "customXmlProps", "itemProps1.xml");
+                package.Relationships("customXml/_rels/item1.xml.rels", item);
             }
 
             package.XmlPart("word/settings.xml", w => WriteSettings(w, parts));
@@ -329,6 +438,11 @@ public sealed partial class DocxDocument
             if (parts.Footnotes.Count > 0)
             {
                 package.Override("/word/footnotes.xml", ContentType + "footnotes+xml");
+            }
+
+            if (_sources.Count > 0)
+            {
+                package.Override("/customXml/itemProps1.xml", "application/vnd.openxmlformats-officedocument.customXmlProperties+xml");
             }
 
             foreach (var part in parts.HeadersAndFooters)
@@ -420,7 +534,21 @@ public sealed partial class DocxDocument
             foreach (var block in section.Blocks)
             {
                 parts.HasContents |= block is DocxTableOfContents;
+                parts.HasBibliography |= block is DocxBibliography;
             }
+        }
+
+        foreach (var source in parts.Citations)
+        {
+            if (!_sources.Contains(source))
+            {
+                throw new InvalidOperationException(Divit.Properties.Messages.Get(Divit.Properties.Strings.SourceNotInDocument));
+            }
+        }
+
+        if (_sources.Count > 0)
+        {
+            parts.Relationships.Add(RelType + "customXml", "../customXml/item1.xml");
         }
 
         // Bookmarks for the paragraphs that links and references point at, in the order of the body.
@@ -446,6 +574,7 @@ public sealed partial class DocxDocument
         }
 
         parts.HeadingList = Headings(parts.HeadingNumbers);
+        parts.Annotations = parts.Bookmarks.Count + parts.LabelBookmarks.Count;
         return parts;
     }
 
@@ -538,6 +667,14 @@ public sealed partial class DocxDocument
                 {
                     parts.FootnoteIds[run] = parts.Footnotes.Count + 1;
                     parts.Footnotes.Add(run);
+                }
+                else if (run.Math != null)
+                {
+                    parts.MathParts.Add(container);
+                }
+                else if (run.Citation != null)
+                {
+                    parts.Citations.Add(run.Citation);
                 }
             }
         }
@@ -667,5 +804,27 @@ public sealed partial class DocxDocument
         public bool HasReferences { get; set; }
 
         public bool HasFootnoteRuns { get; set; }
+
+        public bool HasBibliography { get; set; }
+
+        /// <summary>
+        /// The parts that hold equations, which declare the math namespace.
+        /// </summary>
+        public HashSet<DocxContainer> MathParts { get; } = new HashSet<DocxContainer>();
+
+        /// <summary>
+        /// The sources cited anywhere.
+        /// </summary>
+        public HashSet<DocxSource> Citations { get; } = new HashSet<DocxSource>();
+
+        /// <summary>
+        /// Counter of revision ids, which continue after the bookmark ids.
+        /// </summary>
+        public int Annotations { get; set; }
+
+        /// <summary>
+        /// Whether Word should update the fields on opening: contents, references, citations, a bibliography.
+        /// </summary>
+        public bool UpdateFields => HasContents || HasReferences || Citations.Count > 0 || HasBibliography;
     }
 }

@@ -22,12 +22,14 @@ public sealed partial class DocxDocument
         var scope = new Scope(parts, parts.HeadingList, Captions());
         w.WriteStartElement("w", "document", Main);
         w.WriteAttributeString("xmlns", "r", null, RelNs);
-        var checkBoxes = false;
+        bool checkBoxes = false, math = false;
         foreach (var section in _sections)
         {
             checkBoxes |= parts.CheckBoxParts.Contains(section);
+            math |= parts.MathParts.Contains(section);
         }
 
+        if (math) { w.WriteAttributeString("xmlns", "m", null, MathNs); }
         if (checkBoxes) { Word2010Namespaces(w); }
         w.WriteStartElement("body", Main);
         for (var i = 0; i < _sections.Count; i++)
@@ -91,6 +93,9 @@ public sealed partial class DocxDocument
                 case DocxTable table:
                     WriteTable(w, table, scope);
                     break;
+                case DocxBibliography _:
+                    WriteBibliography(w);
+                    break;
             }
         }
     }
@@ -107,9 +112,9 @@ public sealed partial class DocxDocument
         if (whole >= 0) { BookmarkStart(w, whole); }
         for (var i = 0; i < p.Runs.Count; i++)
         {
-            if (i == 0 && label >= 0) { BookmarkStart(w, label); }
+            if (i == p.LabelStart && label >= 0) { BookmarkStart(w, label); }
             WriteRun(w, p.Runs[i], scope);
-            if (i == 1 && label >= 0) { BookmarkEnd(w, label); }
+            if (i == p.LabelStart + p.LabelCount - 1 && label >= 0) { BookmarkEnd(w, label); }
         }
 
         if (whole >= 0) { BookmarkEnd(w, whole); }
@@ -274,6 +279,24 @@ public sealed partial class DocxDocument
         if (run.CheckBox is bool ticked)
         {
             WriteCheckBox(w, run, ticked, parts);
+            return;
+        }
+
+        if (run.Math != null)
+        {
+            WriteEquation(w, run);
+            return;
+        }
+
+        if (run.Citation != null)
+        {
+            WriteCitation(w, run);
+            return;
+        }
+
+        if (run.Revision != DocxRevision.None)
+        {
+            WriteRevision(w, run, parts);
             return;
         }
 

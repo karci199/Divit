@@ -55,6 +55,8 @@ internal static class Strings
     internal const string TableWidthsCount = nameof(TableWidthsCount);
     internal const string ReferenceNotCaption = nameof(ReferenceNotCaption);
     internal const string ReferenceTargetMissing = nameof(ReferenceTargetMissing);
+    internal const string SourceTagInvalid = nameof(SourceTagInvalid);
+    internal const string SourceNotInDocument = nameof(SourceNotInDocument);
 }
 
 /// <summary>

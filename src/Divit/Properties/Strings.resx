@@ -141,4 +141,10 @@
   <data name="ReferenceTargetMissing" xml:space="preserve">
     <value>A cross-reference or link points at a paragraph that is not in the body of the document.</value>
   </data>
+  <data name="SourceTagInvalid" xml:space="preserve">
+    <value>A source tag is one word without spaces, quotes or backslashes, unique in the document.</value>
+  </data>
+  <data name="SourceNotInDocument" xml:space="preserve">
+    <value>A citation points at a source of another document.</value>
+  </data>
 </root>

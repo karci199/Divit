@@ -188,6 +188,24 @@ public sealed partial class DocxDocument
             w.WriteEndElement();
         }
 
+        if (parts.HasBibliography)
+        {
+            StyleStart(w, "paragraph", BibliographyStyleId, "Bibliography", DocxStyle.Normal, DocxStyle.Normal, 37, false, false, unhide: true);
+            w.WriteStartElement("pPr", Main);
+            w.WriteStartElement("tabs", Main);
+            w.WriteStartElement("tab", Main);
+            w.WriteAttributeString("w", "val", Main, "left");
+            w.WriteAttributeString("w", "pos", Main, "567");
+            w.WriteEndElement();
+            w.WriteEndElement();
+            w.WriteStartElement("ind", Main);
+            w.WriteAttributeString("w", "left", Main, "567");
+            w.WriteAttributeString("w", "hanging", Main, "567");
+            w.WriteEndElement();
+            w.WriteEndElement();
+            w.WriteEndElement();
+        }
+
         if (parts.HasLinks)
         {
             StyleStart(w, "character", LinkStyle, "Hyperlink", null, null, 99, false, false, unhide: true);
@@ -479,7 +497,7 @@ public sealed partial class DocxDocument
         Val(w, "defaultTabStop", "708");
         if (parts.EvenPages) { w.WriteElementString("evenAndOddHeaders", Main, null); }
         Val(w, "characterSpacingControl", "doNotCompress");
-        if (parts.HasContents || parts.HasReferences) { Val(w, "updateFields", "true"); }
+        if (parts.UpdateFields) { Val(w, "updateFields", "true"); }
         if (parts.Footnotes.Count > 0)
         {
             w.WriteStartElement("footnotePr", Main);
