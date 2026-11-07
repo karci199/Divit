@@ -15,8 +15,8 @@
   <data name="SeriesRangeEmpty" xml:space="preserve">
     <value>Series range is empty: rows {0}–{1}.</value>
   </data>
-  <data name="ImageNotPng" xml:space="preserve">
-    <value>The image is not a PNG file.</value>
+  <data name="ImageFormatUnknown" xml:space="preserve">
+    <value>The image is not a PNG, JPEG or GIF file.</value>
   </data>
   <data name="MergeRangeReversed" xml:space="preserve">
     <value>Merge range is reversed: the top-left cell comes after the bottom-right one.</value>
@@ -110,5 +110,8 @@
   </data>
   <data name="CellValueType" xml:space="preserve">
     <value>A cell cannot hold a value of type {0}; use text, a number, a date or a boolean.</value>
+  </data>
+  <data name="ImageSizeUnknown" xml:space="preserve">
+    <value>The size of the image cannot be read from the file; give width and height.</value>
   </data>
 </root>

@@ -117,6 +117,12 @@ public sealed class XlsxChart
     public XlsxAxis YAxis { get; } = new XlsxAxis();
 
     /// <summary>
+    /// The vertical axis on the right, for series with <see cref="XlsxSeries.SecondaryAxis"/>: a second quantity
+    /// with its own scale (units on the left, percent on the right). Shown only when a series uses it.
+    /// </summary>
+    public XlsxAxis SecondaryYAxis { get; } = new XlsxAxis();
+
+    /// <summary>
     /// Whether the legend shows below the plot; <c>null</c> shows it when there is more than one series, and always for
     /// pie and doughnut charts (their legend names the slices).
     /// </summary>
@@ -358,6 +364,17 @@ public sealed class XlsxAxis
     /// Excel does.
     /// </summary>
     public bool? Gridlines { get; set; }
+
+    /// <summary>
+    /// Base of a logarithmic value axis (2–1000, usually 10); a linear axis when empty. Values must be positive.
+    /// </summary>
+    public double? LogBase { get; set; }
+
+    /// <summary>
+    /// Runs the axis the other way: values from top to bottom, or categories from right to left (on a bar chart,
+    /// first category at the top).
+    /// </summary>
+    public bool Reverse { get; set; }
 }
 
 /// <summary>
@@ -435,6 +452,29 @@ public sealed class XlsxSeries
     /// How far the slices of a pie or doughnut chart stand out from the centre, in percent of the radius (0–400).
     /// </summary>
     public int Explosion { get; set; }
+
+    /// <summary>
+    /// Draws the series in another kind than the chart, for a combined chart: <see cref="XlsxChartKind.Column"/>,
+    /// <see cref="XlsxChartKind.Line"/> or <see cref="XlsxChartKind.Area"/> in a column, line or area chart (columns
+    /// with a line on top). The chart's kind when empty; ignored in other charts.
+    /// </summary>
+    public XlsxChartKind? Kind { get; set; }
+
+    /// <summary>
+    /// Measures the series on the right axis (<see cref="XlsxChart.SecondaryYAxis"/>), in column, line, area and
+    /// scatter charts.
+    /// </summary>
+    public bool SecondaryAxis { get; set; }
+
+    /// <summary>
+    /// A fitted line over the series (linear, exponential …), in scatter, column, bar, line and area charts.
+    /// </summary>
+    public XlsxTrendline? Trendline { get; set; }
+
+    /// <summary>
+    /// Error bars on the values, in scatter, column, bar, line and area charts.
+    /// </summary>
+    public XlsxErrorBars? ErrorBars { get; set; }
 
     /// <summary>
     /// Whether the line style was given; otherwise column-like charts colour the series from the look's palette.
@@ -571,4 +611,189 @@ public sealed class XlsxChartLook
     /// Width of the lines of a line chart, in points.
     /// </summary>
     public double LineWidth { get; set; } = 2.25;
+}
+
+/// <summary>
+/// The kind of a trendline.
+/// </summary>
+public enum XlsxTrendlineKind
+{
+    /// <summary>
+    /// A straight line: y = a·x + b.
+    /// </summary>
+    Linear,
+
+    /// <summary>
+    /// y = a·e^(b·x); values must be positive.
+    /// </summary>
+    Exponential,
+
+    /// <summary>
+    /// y = a·ln(x) + b.
+    /// </summary>
+    Logarithmic,
+
+    /// <summary>
+    /// A polynomial of <see cref="XlsxTrendline.Order"/>.
+    /// </summary>
+    Polynomial,
+
+    /// <summary>
+    /// y = a·x^b; values must be positive.
+    /// </summary>
+    Power,
+
+    /// <summary>
+    /// The average of the last <see cref="XlsxTrendline.Period"/> points.
+    /// </summary>
+    MovingAverage,
+}
+
+/// <summary>
+/// A line fitted over a series, which Excel computes from the values; it can show its equation and R².
+/// </summary>
+public sealed class XlsxTrendline
+{
+    /// <summary>
+    /// Creates a trendline.
+    /// </summary>
+    /// <param name="kind">The kind of fit.</param>
+    public XlsxTrendline(XlsxTrendlineKind kind)
+    {
+        Kind = kind;
+    }
+
+    /// <summary>
+    /// The kind of fit.
+    /// </summary>
+    public XlsxTrendlineKind Kind { get; }
+
+    /// <summary>
+    /// Order of a polynomial, 2–6.
+    /// </summary>
+    public int Order { get; set; } = 2;
+
+    /// <summary>
+    /// Number of points a moving average spans, at least 2.
+    /// </summary>
+    public int Period { get; set; } = 2;
+
+    /// <summary>
+    /// Name in the legend; Excel names it after the fit when empty.
+    /// </summary>
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// Shows the equation on the chart.
+    /// </summary>
+    public bool ShowEquation { get; set; }
+
+    /// <summary>
+    /// Shows R², how well the line fits.
+    /// </summary>
+    public bool ShowRSquared { get; set; }
+
+    /// <summary>
+    /// Line style; a thin dotted line in the series colour when empty.
+    /// </summary>
+    public XlsxLine? Line { get; set; }
+}
+
+/// <summary>
+/// Error bars on the values of a series: a fixed amount, a percentage, a multiple of the standard deviation, the
+/// standard error, or amounts taken from cells.
+/// </summary>
+public sealed class XlsxErrorBars
+{
+    private XlsxErrorBars(string type, double value)
+    {
+        Type = type;
+        Value = value;
+    }
+
+    /// <summary>
+    /// Whether the bars run above, below or both ways.
+    /// </summary>
+    public XlsxErrorDirection Direction { get; set; } = XlsxErrorDirection.Both;
+
+    /// <summary>
+    /// Whether the bars end in a short cross line.
+    /// </summary>
+    public bool EndCap { get; set; } = true;
+
+    /// <summary>
+    /// Line style; a thin dark line when empty.
+    /// </summary>
+    public XlsxLine? Line { get; set; }
+
+    internal string Type { get; }
+
+    internal double Value { get; }
+
+    /// <summary>
+    /// Column of the amounts above (custom bars).
+    /// </summary>
+    internal int PlusColumn { get; private set; }
+
+    /// <summary>
+    /// Column of the amounts below (custom bars).
+    /// </summary>
+    internal int MinusColumn { get; private set; }
+
+    /// <summary>
+    /// The same amount on every point.
+    /// </summary>
+    /// <param name="amount">The amount.</param>
+    /// <returns>The error bars.</returns>
+    public static XlsxErrorBars Fixed(double amount) => new XlsxErrorBars("fixedVal", amount);
+
+    /// <summary>
+    /// A percentage of each value.
+    /// </summary>
+    /// <param name="percent">The percentage, for example 5.</param>
+    /// <returns>The error bars.</returns>
+    public static XlsxErrorBars Percent(double percent) => new XlsxErrorBars("percentage", percent);
+
+    /// <summary>
+    /// A multiple of the standard deviation of the series.
+    /// </summary>
+    /// <param name="multiple">How many standard deviations.</param>
+    /// <returns>The error bars.</returns>
+    public static XlsxErrorBars StandardDeviation(double multiple = 1) => new XlsxErrorBars("stdDev", multiple);
+
+    /// <summary>
+    /// The standard error of the series.
+    /// </summary>
+    /// <returns>The error bars.</returns>
+    public static XlsxErrorBars StandardError() => new XlsxErrorBars("stdErr", 0);
+
+    /// <summary>
+    /// Amounts read from columns of the sheet, on the same rows as the series: measured uncertainties.
+    /// </summary>
+    /// <param name="plusColumn">Column of the amounts above the values.</param>
+    /// <param name="minusColumn">Column of the amounts below; the same as above when empty.</param>
+    /// <returns>The error bars.</returns>
+    public static XlsxErrorBars FromColumns(int plusColumn, int? minusColumn = null) =>
+        new XlsxErrorBars("cust", 0) { PlusColumn = plusColumn, MinusColumn = minusColumn ?? plusColumn };
+}
+
+/// <summary>
+/// Which way error bars run from a value.
+/// </summary>
+public enum XlsxErrorDirection
+{
+    /// <summary>
+    /// Above and below.
+    /// </summary>
+    Both,
+
+    /// <summary>
+    /// Above only.
+    /// </summary>
+    Plus,
+
+    /// <summary>
+    /// Below only.
+    /// </summary>
+    Minus,
 }

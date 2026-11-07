@@ -15,8 +15,8 @@
   <data name="SeriesRangeEmpty" xml:space="preserve">
     <value>Seri aralığı boş: {0}–{1}. satırlar.</value>
   </data>
-  <data name="ImageNotPng" xml:space="preserve">
-    <value>Resim PNG değil.</value>
+  <data name="ImageFormatUnknown" xml:space="preserve">
+    <value>Görsel PNG, JPEG ya da GIF dosyası değil.</value>
   </data>
   <data name="MergeRangeReversed" xml:space="preserve">
     <value>Birleştirme aralığı ters: sol üst hücre sağ alttan sonra geliyor.</value>
@@ -110,5 +110,8 @@
   </data>
   <data name="CellValueType" xml:space="preserve">
     <value>Hücre {0} türünde değer tutamaz; metin, sayı, tarih ya da mantıksal değer kullanın.</value>
+  </data>
+  <data name="ImageSizeUnknown" xml:space="preserve">
+    <value>Görselin boyutu dosyadan okunamıyor; genişlik ve yüksekliği verin.</value>
   </data>
 </root>

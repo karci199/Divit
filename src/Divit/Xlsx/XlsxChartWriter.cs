@@ -77,12 +77,21 @@ internal static class XlsxChartWriter
             var image = images[j];
             var cx = (image.Width * EmuPerPixel).ToString(CultureInfo.InvariantCulture);
             var cy = (image.Height * EmuPerPixel).ToString(CultureInfo.InvariantCulture);
-            Anchor(w, image.Row, image.Column, image.Width, image.Height);
+            if (image.LastRow > 0)
+            {
+                CellsAnchor(w, image.Row, image.Column, image.LastRow, image.LastColumn);
+            }
+            else
+            {
+                Anchor(w, image.Row, image.Column, image.Width, image.Height);
+            }
+
             w.WriteStartElement("pic", SheetDrawingNs);
             w.WriteStartElement("nvPicPr", SheetDrawingNs);
             w.WriteStartElement("cNvPr", SheetDrawingNs);
             w.WriteAttributeString("id", Int(charts.Count + j + 2));
             w.WriteAttributeString("name", "Picture " + Int(j + 1));
+            if (image.Description != null) { w.WriteAttributeString("descr", Divit.Packaging.OfficeText.Clean(image.Description)); }
             w.WriteEndElement();
             w.WriteStartElement("cNvPicPr", SheetDrawingNs);
             w.WriteStartElement("picLocks", DrawingNs);
@@ -113,6 +122,28 @@ internal static class XlsxChartWriter
             w.WriteEndElement();
         }
 
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// Position of a frame that fills a range: from the top-left corner of the first cell to the top-left corner of
+    /// the cell after the last one (counted from 0), moving and sizing with the cells.
+    /// </summary>
+    private static void CellsAnchor(XmlWriter w, int row1, int column1, int row2, int column2)
+    {
+        w.WriteStartElement("twoCellAnchor", SheetDrawingNs);
+        w.WriteAttributeString("editAs", "twoCell");
+        Marker(w, "from", row1 - 1, column1 - 1);
+        Marker(w, "to", row2, column2);
+    }
+
+    private static void Marker(XmlWriter w, string name, int row, int column)
+    {
+        w.WriteStartElement(name, SheetDrawingNs);
+        w.WriteElementString("col", SheetDrawingNs, Int(column));
+        w.WriteElementString("colOff", SheetDrawingNs, "0");
+        w.WriteElementString("row", SheetDrawingNs, Int(row));
+        w.WriteElementString("rowOff", SheetDrawingNs, "0");
         w.WriteEndElement();
     }
 
@@ -203,18 +234,27 @@ internal static class XlsxChartWriter
         var pie = chart.Kind == XlsxChartKind.Pie || chart.Kind == XlsxChartKind.Doughnut;
         if (chart.Kind == XlsxChartKind.Scatter || polar)
         {
-            w.WriteStartElement(polar ? "radarChart" : "scatterChart", ChartNs);
-            Val(w, polar ? "radarStyle" : "scatterStyle", polar ? "marker" : "smoothMarker");
-            Val(w, "varyColors", "0");
-            for (var i = 0; i < chart.Series.Count; i++)
+            // Series on the right axis form a second scatter group with its own pair of axes.
+            var secondary = !polar && HasSecondary(chart);
+            foreach (var right in secondary ? new[] { false, true } : new[] { false })
             {
-                Series(w, chart, chart.Series[i], i, polar);
+                w.WriteStartElement(polar ? "radarChart" : "scatterChart", ChartNs);
+                Val(w, polar ? "radarStyle" : "scatterStyle", polar ? "marker" : "smoothMarker");
+                Val(w, "varyColors", "0");
+                for (var i = 0; i < chart.Series.Count; i++)
+                {
+                    if (polar || chart.Series[i].SecondaryAxis == right)
+                    {
+                        Series(w, chart, chart.Series[i], i, polar);
+                    }
+                }
+
+                DataLabels(w, chart.DataLabels, false, font, look);
+                Val(w, "axId", right ? "3" : "1");
+                Val(w, "axId", right ? "4" : "2");
+                w.WriteEndElement();
             }
 
-            DataLabels(w, chart.DataLabels, false, font, look);
-            Val(w, "axId", "1");
-            Val(w, "axId", "2");
-            w.WriteEndElement();
             if (polar)
             {
                 AngleAxis(w, chart, font, look);
@@ -224,6 +264,12 @@ internal static class XlsxChartWriter
             {
                 Axis(w, chart.XAxis, 1, 2, "b", font, look, AxisMode.Scatter);
                 Axis(w, chart.YAxis, 2, 1, "l", font, look, AxisMode.Scatter);
+                if (secondary)
+                {
+                    // The second X axis follows the first and stays hidden; the second Y axis stands on the right.
+                    Axis(w, chart.XAxis, 3, 4, "b", font, look, AxisMode.Scatter, deleted: true);
+                    Axis(w, chart.SecondaryYAxis, 4, 3, "r", font, look, AxisMode.Scatter, crosses: "max");
+                }
             }
         }
         else if (pie)
@@ -317,6 +363,10 @@ internal static class XlsxChartWriter
         }
 
         w.WriteEndElement();
+        if (!polar)
+        {
+            TrendAndErrors(w, chart.Sheet, s, s.Line.Color, true);
+        }
 
         // Polar (radar): angles are categories and values the radius; scatter: X and Y.
         Values(w, polar ? "cat" : "xVal", chart.Sheet, s.XColumn, s.FirstRow, s.LastRow);
@@ -434,23 +484,21 @@ internal static class XlsxChartWriter
     /// <summary>
     /// A value axis.
     /// </summary>
-    private static void Axis(XmlWriter w, XlsxAxis axis, int id, int crossId, string position, string font, XlsxChartLook look, AxisMode mode, string? defaultFormat = null)
+    private static void Axis(XmlWriter w, XlsxAxis axis, int id, int crossId, string position, string font, XlsxChartLook look, AxisMode mode,
+        string? defaultFormat = null, bool deleted = false, string? crosses = null)
     {
         w.WriteStartElement("valAx", ChartNs);
         Val(w, "axId", Int(id));
-        w.WriteStartElement("scaling", ChartNs);
-        Val(w, "orientation", "minMax");
-        if (axis.Max != null) { Val(w, "max", Num(axis.Max.Value)); }
-        if (axis.Min != null) { Val(w, "min", Num(axis.Min.Value)); }
-        w.WriteEndElement();
-        Val(w, "delete", "0");
+        Scaling(w, axis, true);
+        Val(w, "delete", deleted ? "1" : "0");
         Val(w, "axPos", position);
-        if (axis.Gridlines ?? true)
+        // A hidden axis only carries the scale for its series: no gridlines, no title.
+        if (!deleted && (axis.Gridlines ?? true))
         {
             Gridlines(w, look);
         }
 
-        AxisTitle(w, axis, position, font, look);
+        if (!deleted) { AxisTitle(w, axis, position, font, look); }
         var format = axis.NumberFormat ?? defaultFormat;
         w.WriteStartElement("numFmt", ChartNs);
         w.WriteAttributeString("formatCode", format ?? "General");
@@ -458,13 +506,14 @@ internal static class XlsxChartWriter
         w.WriteEndElement();
         Val(w, "majorTickMark", mode == AxisMode.Radius ? "cross" : "out");
         Val(w, "minorTickMark", "none");
-        Val(w, "tickLblPos", mode == AxisMode.Scatter ? "low" : "nextTo");
+        // An axis crossing at the far end (the right axis) keeps its labels beside it; "low" would move them to the left.
+        Val(w, "tickLblPos", mode == AxisMode.Scatter && crosses == null ? "low" : "nextTo");
         w.WriteStartElement("spPr", ChartNs);
         Line(w, look.AxisColor, 0.75, "solid");
         w.WriteEndElement();
         TextProperties(w, font, look.TextSize, false, look.TextColor);
         Val(w, "crossAx", Int(crossId));
-        Val(w, "crosses", mode == AxisMode.Scatter ? "min" : "autoZero");
+        Val(w, "crosses", crosses ?? (mode == AxisMode.Scatter ? "min" : "autoZero"));
         Val(w, "crossBetween", mode == AxisMode.Scatter ? "midCat" : "between");
         if (axis.MajorUnit != null) { Val(w, "majorUnit", Num(axis.MajorUnit.Value)); }
         w.WriteEndElement();
@@ -474,21 +523,19 @@ internal static class XlsxChartWriter
     /// The category axis of a column, bar, line or area chart. Labels sit at the low end, so they stay at the edge
     /// when values are negative.
     /// </summary>
-    private static void CategoryAxis(XmlWriter w, XlsxAxis axis, string position, string font, XlsxChartLook look)
+    private static void CategoryAxis(XmlWriter w, XlsxAxis axis, int id, int crossId, string position, string font, XlsxChartLook look, bool deleted = false)
     {
         w.WriteStartElement("catAx", ChartNs);
-        Val(w, "axId", "1");
-        w.WriteStartElement("scaling", ChartNs);
-        Val(w, "orientation", "minMax");
-        w.WriteEndElement();
-        Val(w, "delete", "0");
+        Val(w, "axId", Int(id));
+        Scaling(w, axis, false);
+        Val(w, "delete", deleted ? "1" : "0");
         Val(w, "axPos", position);
-        if (axis.Gridlines ?? false)
+        if (!deleted && (axis.Gridlines ?? false))
         {
             Gridlines(w, look);
         }
 
-        AxisTitle(w, axis, position, font, look);
+        if (!deleted) { AxisTitle(w, axis, position, font, look); }
         w.WriteStartElement("numFmt", ChartNs);
         w.WriteAttributeString("formatCode", axis.NumberFormat ?? "General");
         w.WriteAttributeString("sourceLinked", axis.NumberFormat == null ? "1" : "0");
@@ -500,13 +547,104 @@ internal static class XlsxChartWriter
         Line(w, look.AxisColor, 0.75, "solid");
         w.WriteEndElement();
         TextProperties(w, font, look.TextSize, false, look.TextColor);
-        Val(w, "crossAx", "2");
+        Val(w, "crossAx", Int(crossId));
         Val(w, "crosses", "autoZero");
         Val(w, "auto", "1");
         Val(w, "lblAlgn", "ctr");
         Val(w, "lblOffset", "100");
         Val(w, "noMultiLvlLbl", "0");
         w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// Scale of an axis: logarithmic base, direction, and on value axes the range; in the order of the standard.
+    /// </summary>
+    private static void Scaling(XmlWriter w, XlsxAxis axis, bool values)
+    {
+        w.WriteStartElement("scaling", ChartNs);
+        if (values && axis.LogBase is double logBase)
+        {
+            Val(w, "logBase", Num(System.Math.Max(2, System.Math.Min(1000, logBase))));
+        }
+
+        Val(w, "orientation", axis.Reverse ? "maxMin" : "minMax");
+        if (values && axis.Max != null) { Val(w, "max", Num(axis.Max.Value)); }
+        if (values && axis.Min != null) { Val(w, "min", Num(axis.Min.Value)); }
+        w.WriteEndElement();
+    }
+
+    private static bool HasSecondary(XlsxChart chart)
+    {
+        foreach (var s in chart.Series)
+        {
+            if (s.SecondaryAxis)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The trendline and error bars of a series, between its labels and its values.
+    /// </summary>
+    private static void TrendAndErrors(XmlWriter w, XlsxSheet sheet, XlsxSeries s, string color, bool scatter)
+    {
+        if (s.Trendline is XlsxTrendline trend)
+        {
+            w.WriteStartElement("trendline", ChartNs);
+            if (trend.Name != null) { w.WriteElementString("name", ChartNs, Divit.Packaging.OfficeText.Clean(trend.Name)); }
+            var line = trend.Line ?? new XlsxLine(color, 1.25, "sysDot");
+            w.WriteStartElement("spPr", ChartNs);
+            Line(w, line.Color, line.Width, line.Dash);
+            w.WriteEndElement();
+            Val(w, "trendlineType", TrendName(trend.Kind));
+            if (trend.Kind == XlsxTrendlineKind.Polynomial) { Val(w, "order", Int(Clamp(trend.Order, 2, 6))); }
+            if (trend.Kind == XlsxTrendlineKind.MovingAverage) { Val(w, "period", Int(System.Math.Max(2, trend.Period))); }
+            Val(w, "dispRSqr", trend.ShowRSquared ? "1" : "0");
+            Val(w, "dispEq", trend.ShowEquation ? "1" : "0");
+            w.WriteEndElement();
+        }
+
+        if (s.ErrorBars is XlsxErrorBars bars)
+        {
+            w.WriteStartElement("errBars", ChartNs);
+
+            // Scatter charts have X and Y error bars and must say which; the other charts have Y only.
+            if (scatter) { Val(w, "errDir", "y"); }
+            Val(w, "errBarType", bars.Direction == XlsxErrorDirection.Plus ? "plus" : bars.Direction == XlsxErrorDirection.Minus ? "minus" : "both");
+            Val(w, "errValType", bars.Type);
+            Val(w, "noEndCap", bars.EndCap ? "0" : "1");
+            if (bars.Type == "cust")
+            {
+                Values(w, "plus", sheet, bars.PlusColumn, s.FirstRow, s.LastRow);
+                Values(w, "minus", sheet, bars.MinusColumn, s.FirstRow, s.LastRow);
+            }
+            else if (bars.Type != "stdErr")
+            {
+                Val(w, "val", Num(bars.Value));
+            }
+
+            var line = bars.Line ?? new XlsxLine("#404040", 1, "solid");
+            w.WriteStartElement("spPr", ChartNs);
+            Line(w, line.Color, line.Width, line.Dash);
+            w.WriteEndElement();
+            w.WriteEndElement();
+        }
+    }
+
+    private static string TrendName(XlsxTrendlineKind kind)
+    {
+        switch (kind)
+        {
+            case XlsxTrendlineKind.Exponential: return "exp";
+            case XlsxTrendlineKind.Logarithmic: return "log";
+            case XlsxTrendlineKind.Polynomial: return "poly";
+            case XlsxTrendlineKind.Power: return "power";
+            case XlsxTrendlineKind.MovingAverage: return "movingAvg";
+            default: return "linear";
+        }
     }
 
     private static void Gridlines(XmlWriter w, XlsxChartLook look)
@@ -542,11 +680,60 @@ internal static class XlsxChartWriter
     }
 
     /// <summary>
-    /// Columns, bars, lines or areas over categories, with a category axis and a value axis.
+    /// Columns, bars, lines or areas over categories, with a category axis and a value axis. Series of another kind
+    /// or on the right axis form groups of their own, one chart element each, in the order they first appear; the
+    /// right axis gets a hidden category axis of its own.
     /// </summary>
     private static void CategoryPlot(XmlWriter w, XlsxChart chart, string font, XlsxChartLook look)
     {
-        var kind = chart.Kind;
+        var groups = new List<(XlsxChartKind Kind, bool Right)>();
+        foreach (var s in chart.Series)
+        {
+            var group = (KindOf(chart, s), s.SecondaryAxis);
+            if (!groups.Contains(group))
+            {
+                groups.Add(group);
+            }
+        }
+
+        if (groups.Count == 0)
+        {
+            groups.Add((chart.Kind, false));
+        }
+
+        foreach (var group in groups)
+        {
+            CategoryGroup(w, chart, group.Kind, group.Right, font, look);
+        }
+
+        // A bar chart turns the axes: categories on the left, values below.
+        var horizontal = chart.Kind == XlsxChartKind.Bar;
+        var percent = chart.Grouping == XlsxChartGrouping.PercentStacked ? "0%" : null;
+        CategoryAxis(w, chart.XAxis, 1, 2, horizontal ? "l" : "b", font, look);
+
+        // Reversed categories move the value axis to the far side; crossing at the last category keeps it at the edge
+        // it started at.
+        Axis(w, chart.YAxis, 2, 1, horizontal ? "b" : "l", font, look, AxisMode.Value, percent, crosses: chart.XAxis.Reverse ? "max" : null);
+        if (groups.Exists(g => g.Right))
+        {
+            CategoryAxis(w, chart.XAxis, 3, 4, horizontal ? "l" : "b", font, look, deleted: true);
+            Axis(w, chart.SecondaryYAxis, 4, 3, horizontal ? "t" : "r", font, look, AxisMode.Value, percent, crosses: "max");
+        }
+    }
+
+    /// <summary>
+    /// The kind a series is drawn in: its own column, line or area kind in a column, line or area chart, else the
+    /// chart's.
+    /// </summary>
+    private static XlsxChartKind KindOf(XlsxChart chart, XlsxSeries s)
+    {
+        var combinable = chart.Kind == XlsxChartKind.Column || chart.Kind == XlsxChartKind.Line || chart.Kind == XlsxChartKind.Area;
+        var own = s.Kind;
+        return combinable && (own == XlsxChartKind.Column || own == XlsxChartKind.Line || own == XlsxChartKind.Area) ? own!.Value : chart.Kind;
+    }
+
+    private static void CategoryGroup(XmlWriter w, XlsxChart chart, XlsxChartKind kind, bool right, string font, XlsxChartLook look)
+    {
         var bars = kind == XlsxChartKind.Column || kind == XlsxChartKind.Bar;
         var element = bars ? "barChart" : kind == XlsxChartKind.Line ? "lineChart" : "areaChart";
         w.WriteStartElement(element, ChartNs);
@@ -563,7 +750,11 @@ internal static class XlsxChartWriter
         Val(w, "varyColors", "0");
         for (var i = 0; i < chart.Series.Count; i++)
         {
-            CategorySeries(w, chart, chart.Series[i], i);
+            var s = chart.Series[i];
+            if (KindOf(chart, s) == kind && s.SecondaryAxis == right)
+            {
+                CategorySeries(w, chart, s, i, kind);
+            }
         }
 
         DataLabels(w, chart.DataLabels, false, font, look);
@@ -579,18 +770,12 @@ internal static class XlsxChartWriter
             Val(w, "marker", "1");
         }
 
-        Val(w, "axId", "1");
-        Val(w, "axId", "2");
+        Val(w, "axId", right ? "3" : "1");
+        Val(w, "axId", right ? "4" : "2");
         w.WriteEndElement();
-
-        // A bar chart turns the axes: categories on the left, values below.
-        var horizontal = kind == XlsxChartKind.Bar;
-        CategoryAxis(w, chart.XAxis, horizontal ? "l" : "b", font, look);
-        Axis(w, chart.YAxis, 2, 1, horizontal ? "b" : "l", font, look, AxisMode.Value,
-            chart.Grouping == XlsxChartGrouping.PercentStacked ? "0%" : null);
     }
 
-    private static void CategorySeries(XmlWriter w, XlsxChart chart, XlsxSeries s, int index)
+    private static void CategorySeries(XmlWriter w, XlsxChart chart, XlsxSeries s, int index, XlsxChartKind kind)
     {
         var look = chart.Look;
         var color = s.OwnColor ? s.Line.Color : PaletteColor(look, index);
@@ -601,7 +786,7 @@ internal static class XlsxChartWriter
         w.WriteElementString("v", ChartNs, s.Name);
         w.WriteEndElement();
         w.WriteStartElement("spPr", ChartNs);
-        if (chart.Kind == XlsxChartKind.Line)
+        if (kind == XlsxChartKind.Line)
         {
             Line(w, color, s.OwnColor ? s.Line.Width : look.LineWidth, s.OwnColor ? s.Line.Dash : "solid");
         }
@@ -612,19 +797,20 @@ internal static class XlsxChartWriter
         }
 
         w.WriteEndElement();
-        if (chart.Kind == XlsxChartKind.Column || chart.Kind == XlsxChartKind.Bar)
+        if (kind == XlsxChartKind.Column || kind == XlsxChartKind.Bar)
         {
             Val(w, "invertIfNegative", "0");
         }
 
-        if (chart.Kind == XlsxChartKind.Line)
+        if (kind == XlsxChartKind.Line)
         {
             Marker(w, s, color);
         }
 
+        TrendAndErrors(w, chart.Sheet, s, color, false);
         Categories(w, chart.Sheet, s.XColumn, s.FirstRow, s.LastRow);
         Values(w, "val", chart.Sheet, s.YColumn, s.FirstRow, s.LastRow);
-        if (chart.Kind == XlsxChartKind.Line)
+        if (kind == XlsxChartKind.Line)
         {
             Val(w, "smooth", s.Smooth ? "1" : "0");
         }

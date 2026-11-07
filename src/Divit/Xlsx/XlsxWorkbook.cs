@@ -58,6 +58,11 @@ public sealed partial class XlsxWorkbook
     /// </summary>
     private bool _formulas;
 
+    /// <summary>
+    /// Extensions of the image formats the last save wrote besides PNG, in order of first use.
+    /// </summary>
+    private readonly List<string> _media = new List<string>();
+
     #endregion
 
     #region Properties
@@ -329,6 +334,7 @@ public sealed partial class XlsxWorkbook
 
             // Every sheet with charts or images: sheet → drawing layer → charts and images. Numbers run across the workbook.
             _charts = 0;
+            _media.Clear();
             var media = 0;
             for (var i = 0; i < _sheets.Count; i++)
             {
@@ -343,7 +349,11 @@ public sealed partial class XlsxWorkbook
                 var links = new RelationshipList();
                 foreach (var image in images)
                 {
-                    package.BinaryPart("xl/media/image" + (++media) + ".png", image.Png, false);
+                    package.BinaryPart("xl/media/image" + (++media) + "." + image.Info.Extension, image.Data, false);
+                    if (!_media.Contains(image.Info.Extension))
+                    {
+                        _media.Add(image.Info.Extension);
+                    }
                 }
 
                 for (var k = 0; k < charts.Count; k++)
@@ -353,7 +363,7 @@ public sealed partial class XlsxWorkbook
 
                 for (var k = 0; k < images.Count; k++)
                 {
-                    links.Add(RelationshipTypes.Image, "../media/image" + (media - images.Count + 1 + k) + ".png");
+                    links.Add(RelationshipTypes.Image, "../media/image" + (media - images.Count + 1 + k) + "." + images[k].Info.Extension);
                 }
 
                 package.XmlPart("xl/drawings/drawing" + drawing + ".xml", w => XlsxChartWriter.WriteDrawing(w, charts, images));

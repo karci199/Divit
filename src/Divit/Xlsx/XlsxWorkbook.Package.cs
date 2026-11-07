@@ -181,6 +181,14 @@ public sealed partial class XlsxWorkbook
         package.Default("rels", ContentTypes.Relationships);
         package.Default("xml", ContentTypes.Xml);
         package.Default("png", ContentTypes.Png);
+        foreach (var extension in _media)
+        {
+            if (extension != "png")
+            {
+                package.Default(extension, extension == "gif" ? "image/gif" : "image/jpeg");
+            }
+        }
+
         if (_notes > 0)
         {
             package.Default("vml", ContentTypes.Vml);

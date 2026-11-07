@@ -14,6 +14,8 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <!-- Part of the framework; .NET Framework only needs it named to open the saved zip. -->
     <Reference Include="System.IO.Compression" />
+    <!-- Draws the photo-like demo images (JPEG, GIF) of the gallery; the library itself never uses it. -->
+    <Reference Include="System.Drawing" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Divit\Divit.csproj" />

@@ -13,7 +13,7 @@ using System.Resources;
 internal static class Strings
 {
     internal const string SeriesRangeEmpty = nameof(SeriesRangeEmpty);
-    internal const string ImageNotPng = nameof(ImageNotPng);
+    internal const string ImageFormatUnknown = nameof(ImageFormatUnknown);
     internal const string MergeRangeReversed = nameof(MergeRangeReversed);
     internal const string CellOutOfRange = nameof(CellOutOfRange);
     internal const string SheetNameLength = nameof(SheetNameLength);
@@ -45,6 +45,7 @@ internal static class Strings
     internal const string SheetIsStreamed = nameof(SheetIsStreamed);
     internal const string RowAlreadyStarted = nameof(RowAlreadyStarted);
     internal const string CellValueType = nameof(CellValueType);
+    internal const string ImageSizeUnknown = nameof(ImageSizeUnknown);
 }
 
 /// <summary>

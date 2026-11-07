@@ -34,11 +34,13 @@ public sealed class XlsxSheet
     private readonly List<(int Row1, int Col1, int Row2, int Col2)> _merges = new List<(int, int, int, int)>();
     private readonly List<(int Row, int Col, string Sheet)> _links = new List<(int, int, string)>();
     private readonly List<(int Row, int Col, string Url)> _urlLinks = new List<(int, int, string)>();
-    private readonly SortedDictionary<long, XlsxComment> _comments = new SortedDictionary<long, XlsxComment>();
+    private readonly SortedDictionary<long, XlsxNote> _comments = new SortedDictionary<long, XlsxNote>();
     private readonly List<XlsxChart> _charts = new List<XlsxChart>();
     private readonly List<XlsxImage> _images = new List<XlsxImage>();
     private readonly List<XlsxConditional> _conditionals = new List<XlsxConditional>();
     private readonly List<XlsxTable> _tables = new List<XlsxTable>();
+    private readonly SortedSet<int> _rowBreaks = new SortedSet<int>();
+    private readonly SortedSet<int> _columnBreaks = new SortedSet<int>();
     private readonly List<(int Row1, int Col1, int Row2, int Col2, XlsxValidation Validation)> _validations =
         new List<(int, int, int, int, XlsxValidation)>();
 
@@ -115,6 +117,64 @@ public sealed class XlsxSheet
     /// Page footer with the same codes as <see cref="Header"/>, for example <c>&amp;LDivit&amp;RPage &amp;P / &amp;N</c>.
     /// </summary>
     public string? Footer { get; set; }
+
+    /// <summary>
+    /// Header of the first printed page only, for example a title page without page number; the first page uses
+    /// <see cref="Header"/> when this and <see cref="FirstPageFooter"/> are empty.
+    /// </summary>
+    public string? FirstPageHeader { get; set; }
+
+    /// <summary>
+    /// Footer of the first printed page only.
+    /// </summary>
+    public string? FirstPageFooter { get; set; }
+
+    /// <summary>
+    /// Header of the even pages, for printing on both sides (page numbers outside); the even pages use
+    /// <see cref="Header"/> when this and <see cref="EvenPageFooter"/> are empty.
+    /// </summary>
+    public string? EvenPageHeader { get; set; }
+
+    /// <summary>
+    /// Footer of the even pages.
+    /// </summary>
+    public string? EvenPageFooter { get; set; }
+
+    /// <summary>
+    /// Rows after which a new printed page starts, in ascending order.
+    /// </summary>
+    public IReadOnlyCollection<int> RowBreaks => _rowBreaks;
+
+    /// <summary>
+    /// Columns after which a new printed page starts, in ascending order.
+    /// </summary>
+    public IReadOnlyCollection<int> ColumnBreaks => _columnBreaks;
+
+    /// <summary>
+    /// Starts a new printed page below a row. Manual page breaks turn fitting to pages
+    /// (<see cref="FitWidth"/>, <see cref="FitHeight"/>) off, as in Excel: the two do not mix.
+    /// </summary>
+    /// <param name="row">The last row of a page (1-based).</param>
+    public void BreakAfterRow(int row)
+    {
+        Check(row, 1);
+        _rowBreaks.Add(row);
+    }
+
+    /// <summary>
+    /// Starts a new printed page to the right of a column; see <see cref="BreakAfterRow"/>.
+    /// </summary>
+    /// <param name="column">The last column of a page (1-based).</param>
+    public void BreakAfterColumn(int column)
+    {
+        Check(1, column);
+        _columnBreaks.Add(column);
+    }
+
+    /// <summary>
+    /// Whether the sheet is fitted to pages: fitting is asked for and no manual page break overrides it.
+    /// </summary>
+    internal bool FitsToPage => (FitWidth > 0 || FitHeight > 0) && _rowBreaks.Count == 0 && _columnBreaks.Count == 0;
 
     /// <summary>
     /// Whether to hide Excel's green "number stored as text" warning on text that looks like a number. Meant for fields
@@ -206,7 +266,7 @@ public sealed class XlsxSheet
     /// <summary>
     /// Comments in row order, then column order.
     /// </summary>
-    internal IReadOnlyCollection<XlsxComment> Comments => _comments.Values;
+    internal IReadOnlyCollection<XlsxNote> Comments => _comments.Values;
 
     #endregion
 
@@ -240,24 +300,67 @@ public sealed class XlsxSheet
     #region Images and colour scales
 
     /// <summary>
-    /// Adds a PNG image to the sheet (for example a heat map or a chart drawn by another program).
+    /// Adds an image (PNG, JPEG or GIF) at a cell: it moves with the cell and keeps its size when rows and columns
+    /// change. For example a logo, a photo, a heat map or a chart drawn by another program.
     /// </summary>
     /// <param name="row">Row of the top-left corner.</param>
     /// <param name="column">Column of the top-left corner.</param>
-    /// <param name="png">Bytes of the PNG file.</param>
-    /// <param name="width">Width in pixels.</param>
-    /// <param name="height">Height in pixels.</param>
-    /// <exception cref="ArgumentException">The bytes are not a PNG image.</exception>
-    public void AddImage(int row, int column, byte[] png, int width, int height)
+    /// <param name="image">Bytes of the image file.</param>
+    /// <param name="width">Width in pixels; 0 takes the image's own width, or keeps its proportions when only the
+    /// height is given.</param>
+    /// <param name="height">Height in pixels; 0 takes the image's own height, or keeps its proportions.</param>
+    /// <param name="description">Alternative text, read out by screen readers.</param>
+    /// <exception cref="ArgumentException">The bytes are no PNG, JPEG or GIF, or the size is not given and cannot be
+    /// read from them.</exception>
+    public void AddImage(int row, int column, byte[] image, int width = 0, int height = 0, string? description = null)
     {
         Check(row, column);
-        if (!OfficeText.IsPng(png))
+        var info = ImageOf(image);
+        if (width <= 0 || height <= 0)
         {
-            throw new ArgumentException(Messages.Get(Strings.ImageNotPng), nameof(png));
+            if (info.Width <= 0 || info.Height <= 0)
+            {
+                throw new ArgumentException(Messages.Get(Strings.ImageSizeUnknown), nameof(image));
+            }
+
+            if (width <= 0 && height <= 0)
+            {
+                width = info.Width;
+                height = info.Height;
+            }
+            else if (width <= 0)
+            {
+                width = (int)Math.Round(height * (double)info.Width / info.Height);
+            }
+            else
+            {
+                height = (int)Math.Round(width * (double)info.Height / info.Width);
+            }
         }
 
-        _images.Add(new XlsxImage(row, column, png, width, height));
+        _images.Add(new XlsxImage(row, column, 0, 0, image, info, width, height, description));
     }
+
+    /// <summary>
+    /// Adds an image (PNG, JPEG or GIF) that fills a range of cells: it moves and stretches with them when rows and
+    /// columns change size, and is hidden with them.
+    /// </summary>
+    /// <param name="row1">First row (1-based).</param>
+    /// <param name="column1">First column (1-based).</param>
+    /// <param name="row2">Last row.</param>
+    /// <param name="column2">Last column.</param>
+    /// <param name="image">Bytes of the image file.</param>
+    /// <param name="description">Alternative text, read out by screen readers.</param>
+    /// <exception cref="ArgumentException">The bytes are no PNG, JPEG or GIF.</exception>
+    public void AddImageInCells(int row1, int column1, int row2, int column2, byte[] image, string? description = null)
+    {
+        CheckRange(row1, column1, row2, column2);
+        var info = ImageOf(image);
+        _images.Add(new XlsxImage(row1, column1, row2, column2, image, info, info.Width, info.Height, description));
+    }
+
+    private static ImageInfo ImageOf(byte[] image) =>
+        ImageInfo.Read(image) ?? throw new ArgumentException(Messages.Get(Strings.ImageFormatUnknown), nameof(image));
 
     /// <summary>
     /// Gives a range a colour scale: each cell is coloured by its value (Excel conditional formatting). On 2D data this
@@ -711,10 +814,39 @@ public sealed class XlsxSheet
     /// <param name="column">Column (1-based).</param>
     /// <param name="text">Text of the note; line breaks are kept.</param>
     /// <param name="author">Author shown in Excel; the workbook author when empty.</param>
-    public void Comment(int row, int column, string text, string? author = null)
+    /// <returns>The note, to set the size of its box.</returns>
+    public XlsxNote Comment(int row, int column, string text, string? author = null)
     {
         Check(row, column);
-        _comments[Key(row, column)] = new XlsxComment(row, column, text, author);
+        var note = new XlsxNote(row, column, text, null, author);
+        _comments[Key(row, column)] = note;
+        return note;
+    }
+
+    /// <summary>
+    /// Writes a note whose pieces have their own fonts: a bold heading line, a red warning.
+    /// </summary>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="author">Author shown in Excel; the workbook author when empty.</param>
+    /// <param name="runs">The pieces; plain strings take the note's font.</param>
+    /// <returns>The note, to set the size of its box.</returns>
+    public XlsxNote RichComment(int row, int column, string? author, params XlsxRun[] runs)
+    {
+        Check(row, column);
+        var pieces = new List<XlsxRun>();
+        foreach (var run in runs)
+        {
+            if (!string.IsNullOrEmpty(run.Text))
+            {
+                pieces.Add(run);
+            }
+        }
+
+        var rich = new XlsxRichText(pieces);
+        var note = new XlsxNote(row, column, rich.Text, rich, author);
+        _comments[Key(row, column)] = note;
+        return note;
     }
 
     /// <summary>
@@ -1034,24 +1166,39 @@ public sealed class XlsxSheet
     /// </summary>
     internal sealed class XlsxImage
     {
-        public XlsxImage(int row, int column, byte[] png, int width, int height)
+        public XlsxImage(int row, int column, int lastRow, int lastColumn, byte[] data, ImageInfo info, int width, int height, string? description)
         {
             Row = row;
             Column = column;
-            Png = png;
+            LastRow = lastRow;
+            LastColumn = lastColumn;
+            Data = data;
+            Info = info;
             Width = width;
             Height = height;
+            Description = description;
         }
 
         public int Row { get; }
 
         public int Column { get; }
 
-        public byte[] Png { get; }
+        /// <summary>
+        /// Last row of the range the image fills; 0 for an image that keeps its own size.
+        /// </summary>
+        public int LastRow { get; }
+
+        public int LastColumn { get; }
+
+        public byte[] Data { get; }
+
+        public ImageInfo Info { get; }
 
         public int Width { get; }
 
         public int Height { get; }
+
+        public string? Description { get; }
     }
 
     /// <summary>
@@ -1075,28 +1222,6 @@ public sealed class XlsxSheet
         /// Whether the group before this row or column is folded.
         /// </summary>
         public bool Collapsed;
-    }
-
-    /// <summary>
-    /// A note on a cell.
-    /// </summary>
-    internal sealed class XlsxComment
-    {
-        public XlsxComment(int row, int column, string text, string? author)
-        {
-            Row = row;
-            Column = column;
-            Text = text;
-            Author = author;
-        }
-
-        public int Row { get; }
-
-        public int Column { get; }
-
-        public string Text { get; }
-
-        public string? Author { get; }
     }
 
     /// <summary>

@@ -31,7 +31,7 @@ public sealed partial class XlsxWorkbook
         }
 
         w.WriteStartElement("pageSetUpPr", MainNs);
-        w.WriteAttributeString("fitToPage", sheet.FitWidth > 0 || sheet.FitHeight > 0 ? "1" : "0");
+        w.WriteAttributeString("fitToPage", sheet.FitsToPage ? "1" : "0");
         w.WriteEndElement();
         w.WriteEndElement();
 
@@ -339,13 +339,26 @@ public sealed partial class XlsxWorkbook
         w.WriteEndElement();
 
         // Header and footer: sections &L &C &R, &P page, &N page count.
-        if (sheet.Header != null || sheet.Footer != null)
+        var even = sheet.EvenPageHeader != null || sheet.EvenPageFooter != null;
+        var first = sheet.FirstPageHeader != null || sheet.FirstPageFooter != null;
+        if (sheet.Header != null || sheet.Footer != null || even || first)
         {
+            // Odd pages (all pages unless even pages differ), then even, then first, in the order of the standard.
             w.WriteStartElement("headerFooter", MainNs);
-            if (sheet.Header != null) { w.WriteElementString("oddHeader", MainNs, sheet.Header); }
-            if (sheet.Footer != null) { w.WriteElementString("oddFooter", MainNs, sheet.Footer); }
+            if (even) { w.WriteAttributeString("differentOddEven", "1"); }
+            if (first) { w.WriteAttributeString("differentFirst", "1"); }
+            HeaderPart(w, "oddHeader", sheet.Header);
+            HeaderPart(w, "oddFooter", sheet.Footer);
+            HeaderPart(w, "evenHeader", sheet.EvenPageHeader);
+            HeaderPart(w, "evenFooter", sheet.EvenPageFooter);
+            HeaderPart(w, "firstHeader", sheet.FirstPageHeader);
+            HeaderPart(w, "firstFooter", sheet.FirstPageFooter);
             w.WriteEndElement();
         }
+
+        // Manual page breaks: id is the last row (column) of a page; max spans the whole other direction.
+        Breaks(w, "rowBreaks", sheet.RowBreaks, XlsxSheet.MaxColumn - 1);
+        Breaks(w, "colBreaks", sheet.ColumnBreaks, XlsxSheet.MaxRow - 1);
 
         // Ignored warnings: after headerFooter and before drawing, in the order of the standard.
         if (sheet.IgnoreNumbersAsText)
@@ -385,6 +398,36 @@ public sealed partial class XlsxWorkbook
                 w.WriteEndElement();
             }
 
+            w.WriteEndElement();
+        }
+
+        w.WriteEndElement();
+    }
+
+    private static void HeaderPart(XmlWriter w, string name, string? text)
+    {
+        if (text != null)
+        {
+            w.WriteElementString(name, MainNs, OfficeText.Clean(text));
+        }
+    }
+
+    private static void Breaks(XmlWriter w, string name, IReadOnlyCollection<int> breaks, int max)
+    {
+        if (breaks.Count == 0)
+        {
+            return;
+        }
+
+        w.WriteStartElement(name, MainNs);
+        w.WriteAttributeString("count", Int(breaks.Count));
+        w.WriteAttributeString("manualBreakCount", Int(breaks.Count));
+        foreach (var at in breaks)
+        {
+            w.WriteStartElement("brk", MainNs);
+            w.WriteAttributeString("id", Int(at));
+            w.WriteAttributeString("max", Int(max));
+            w.WriteAttributeString("man", "1");
             w.WriteEndElement();
         }
 
@@ -578,10 +621,19 @@ public sealed partial class XlsxWorkbook
             w.WriteAttributeString("ref", CellName(comment.Row, comment.Column));
             w.WriteAttributeString("authorId", Int(authors.IndexOf(comment.Author ?? Author ?? Application)));
             w.WriteStartElement("text", MainNs);
-            w.WriteStartElement("t", MainNs);
-            w.WriteAttributeString("xml", "space", null, "preserve");
-            w.WriteString(OfficeText.Clean(comment.Text));
-            w.WriteEndElement();
+            if (comment.Rich != null)
+            {
+                // Pieces with fonts, written as in the shared strings.
+                new StringTable(this).Runs(w, comment.Rich);
+            }
+            else
+            {
+                w.WriteStartElement("t", MainNs);
+                w.WriteAttributeString("xml", "space", null, "preserve");
+                w.WriteString(OfficeText.Clean(comment.Text));
+                w.WriteEndElement();
+            }
+
             w.WriteEndElement();
             w.WriteEndElement();
         }
@@ -666,7 +718,7 @@ public sealed partial class XlsxWorkbook
             w.WriteElementString("x", "MoveWithCells", X, string.Empty);
             w.WriteElementString("x", "SizeWithCells", X, string.Empty);
             w.WriteElementString("x", "Anchor", X,
-                Int(column + 1) + ", 15, " + Int(Math.Max(0, row - 1)) + ", 10, " + Int(column + 3) + ", 15, " + Int(Math.Max(0, row - 1) + 4) + ", 4");
+                Int(column + 1) + ", 15, " + Int(Math.Max(0, row - 1)) + ", 10, " + Int(column + 1 + comment.Columns) + ", 15, " + Int(Math.Max(0, row - 1) + comment.Rows) + ", 4");
             w.WriteElementString("x", "AutoFill", X, "False");
             w.WriteElementString("x", "Row", X, Int(row));
             w.WriteElementString("x", "Column", X, Int(column));
