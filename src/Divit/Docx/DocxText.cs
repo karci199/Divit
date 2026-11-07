@@ -829,6 +829,11 @@ public sealed class DocxParagraph : DocxBlock
     /// </summary>
     internal string? CaptionLabel { get; set; }
 
+    /// <summary>
+    /// The heading or caption an entry of a laid-out table of contents jumps to.
+    /// </summary>
+    internal DocxParagraph? ContentsTarget { get; set; }
+
     internal void AddPageBreakRun() => _runs.Add(new DocxRun { PageBreak = true });
 
     internal void AddFieldRun(string code, string result) => _runs.Add(new DocxRun { Code = code, Result = result });

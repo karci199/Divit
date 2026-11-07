@@ -29,6 +29,24 @@ public sealed partial class PdfDocument
             contentIds[i] = file.Reserve();
         }
 
+        // Link areas per page, and the bookmarks under one outline root.
+        var linkIds = new int[_pages.Count][];
+        for (var i = 0; i < _pages.Count; i++)
+        {
+            linkIds[i] = new int[_pages[i].Links.Count];
+            for (var l = 0; l < linkIds[i].Length; l++)
+            {
+                linkIds[i][l] = file.Reserve();
+            }
+        }
+
+        var outline = _bookmarks.Count > 0 ? file.Reserve() : 0;
+        var bookmarkIds = new int[_bookmarks.Count];
+        for (var i = 0; i < bookmarkIds.Length; i++)
+        {
+            bookmarkIds[i] = file.Reserve();
+        }
+
         var imageIds = new Dictionary<PdfImage, (int Image, int Mask)>();
         foreach (var image in _images)
         {
@@ -49,7 +67,13 @@ public sealed partial class PdfDocument
             fontIds[font.Resource] = ids.Item2;
         }
 
-        file.Begin(catalog).Append("<< /Type /Catalog /Pages ").Integer(tree).Append(" 0 R >>");
+        var root = file.Begin(catalog).Append("<< /Type /Catalog /Pages ").Integer(tree).Append(" 0 R ");
+        if (outline != 0)
+        {
+            root.Append("/Outlines ").Integer(outline).Append(" 0 R /PageMode /UseOutlines ");
+        }
+
+        root.Append(">>");
         file.End();
         var kids = file.Begin(tree).Append("<< /Type /Pages /Kids [");
         foreach (var id in pageIds)
@@ -89,9 +113,25 @@ public sealed partial class PdfDocument
                 b.Append(">> ");
             }
 
-            b.Append(">> /Contents ").Integer(contentIds[i]).Append(" 0 R >>");
+            b.Append(">> ");
+            if (linkIds[i].Length > 0)
+            {
+                b.Append("/Annots [");
+                foreach (var id in linkIds[i])
+                {
+                    b.Integer(id).Append(" 0 R ");
+                }
+
+                b.Append("] ");
+            }
+
+            b.Append("/Contents ").Integer(contentIds[i]).Append(" 0 R >>");
             file.End();
             file.Stream(contentIds[i], string.Empty, page.Content.Data, page.Content.Length);
+            for (var l = 0; l < page.Links.Count; l++)
+            {
+                WriteLink(file, linkIds[i][l], page, page.Links[l], pageIds);
+            }
         }
 
         foreach (var image in _images)
@@ -117,7 +157,147 @@ public sealed partial class PdfDocument
             WriteFont(file, font, type0, cid, descriptor, program, unicode);
         }
 
+        if (outline != 0)
+        {
+            WriteOutline(file, outline, bookmarkIds, pageIds);
+        }
+
         file.Close(catalog, info);
+    }
+
+    /// <summary>
+    /// A link annotation without a visible border: to a web address, or to a place on a page.
+    /// </summary>
+    private void WriteLink(PdfFile file, int id, PdfPage page, PdfLink link, int[] pageIds)
+    {
+        var b = file.Begin(id).Append("<< /Type /Annot /Subtype /Link /Rect [").Number(link.X).Number(page.Height - link.Y - link.Height)
+            .Number(link.X + link.Width).Number(page.Height - link.Y).Append("] /Border [0 0 0] ");
+        if (link.Url != null)
+        {
+            b.Append("/A << /S /URI /URI (");
+            foreach (var octet in Encoding.UTF8.GetBytes(link.Url))
+            {
+                // Plain ASCII as it is, the rest percent-encoded; brackets and backslashes escaped.
+                if (octet < 33 || octet > 126)
+                {
+                    b.Append('%').Append(((int)octet).ToString("X2", CultureInfo.InvariantCulture));
+                }
+                else
+                {
+                    if (octet == '(' || octet == ')' || octet == '\\')
+                    {
+                        b.Append('\\');
+                    }
+
+                    b.Append((char)octet);
+                }
+            }
+
+            b.Append(") >> >>");
+        }
+        else
+        {
+            Destination(b.Append("/Dest "), link.Target!, link.TargetY, pageIds).Append(">>");
+        }
+
+        file.End();
+    }
+
+    /// <summary>
+    /// A place on a page: the page, and the top of the view there, keeping the reader's zoom.
+    /// </summary>
+    private PdfBuffer Destination(PdfBuffer b, PdfPage page, double y, int[] pageIds) =>
+        b.Append('[').Integer(pageIds[_pages.IndexOf(page)]).Append(" 0 R /XYZ null ").Number(page.Height - y).Append("null] ");
+
+    /// <summary>
+    /// The bookmarks as an outline tree: each entry under the nearest entry before it with a smaller level, all
+    /// open.
+    /// </summary>
+    private void WriteOutline(PdfFile file, int root, int[] ids, int[] pageIds)
+    {
+        var count = ids.Length;
+        var parent = new int[count];
+        var level = new int[count];
+        var stack = new List<int>();
+        for (var i = 0; i < count; i++)
+        {
+            level[i] = _bookmarks[i].Level;
+            while (stack.Count > 0 && level[stack[stack.Count - 1]] >= level[i])
+            {
+                stack.RemoveAt(stack.Count - 1);
+            }
+
+            parent[i] = stack.Count > 0 ? stack[stack.Count - 1] : -1;
+            stack.Add(i);
+        }
+
+        int Next(int i)
+        {
+            for (var j = i + 1; j < count; j++)
+            {
+                if (parent[j] == parent[i]) { return j; }
+                if (level[j] <= level[i] && parent[j] != parent[i]) { return -1; }
+            }
+
+            return -1;
+        }
+
+        int Previous(int i)
+        {
+            for (var j = i - 1; j >= 0; j--)
+            {
+                if (parent[j] == parent[i]) { return j; }
+                if (j == parent[i]) { return -1; }
+            }
+
+            return -1;
+        }
+
+        int Descendants(int i)
+        {
+            var n = 0;
+            for (var j = i + 1; j < count && level[j] > level[i]; j++) { n++; }
+            return n;
+        }
+
+        int FirstChild(int i) => i + 1 < count && parent[i + 1] == i ? i + 1 : -1;
+
+        int LastChild(int i)
+        {
+            var last = -1;
+            for (var j = i + 1; j < count && level[j] > level[i]; j++)
+            {
+                if (parent[j] == i) { last = j; }
+            }
+
+            return last;
+        }
+
+        int firstTop = 0, lastTop = 0;
+        for (var i = 0; i < count; i++)
+        {
+            if (parent[i] < 0) { lastTop = i; }
+        }
+
+        file.Begin(root).Append("<< /Type /Outlines /First ").Integer(ids[firstTop]).Append(" 0 R /Last ").Integer(ids[lastTop]).Append(" 0 R /Count ").Integer(count).Append(" >>");
+        file.End();
+        for (var i = 0; i < count; i++)
+        {
+            var (title, page, y, _) = _bookmarks[i];
+            var b = file.Begin(ids[i]).Append("<< /Title <FEFF");
+            foreach (var c in title)
+            {
+                b.Hex4(c);
+            }
+
+            b.Append("> /Parent ").Integer(parent[i] < 0 ? root : ids[parent[i]]).Append(" 0 R ");
+            int previous = Previous(i), next = Next(i), first = FirstChild(i), last = LastChild(i);
+            if (previous >= 0) { b.Append("/Prev ").Integer(ids[previous]).Append(" 0 R "); }
+            if (next >= 0) { b.Append("/Next ").Integer(ids[next]).Append(" 0 R "); }
+            if (first >= 0) { b.Append("/First ").Integer(ids[first]).Append(" 0 R /Last ").Integer(ids[last]).Append(" 0 R /Count ").Integer(Descendants(i)).Append(' '); }
+            Destination(b.Append("/Dest "), page, y, pageIds).Append(">>");
+            file.End();
+        }
     }
 
     /// <summary>

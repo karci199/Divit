@@ -33,7 +33,7 @@ public class DocxTechnicalTests
     /// <summary>
     /// The link budget of an antenna test: equations with numbers, sources cited, a revised sentence.
     /// </summary>
-    private static DocxDocument Showcase(DocxBibliographyStyle style = DocxBibliographyStyle.Ieee)
+    internal static DocxDocument Showcase(DocxBibliographyStyle style = DocxBibliographyStyle.Ieee)
     {
         var doc = new DocxDocument { Created = XlsxTestKit.FixedTime, NumberHeadings = true, Author = "Test team", BibliographyStyle = style };
         doc.Look.BodyFont = "Trebuchet MS";

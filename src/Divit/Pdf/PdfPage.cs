@@ -158,26 +158,7 @@ public sealed class PdfPage
         Fonts.Add(font.Resource);
         Fill(color);
         var b = _content.Append("BT /").Append(font.Resource).Append(' ').Number(size).Append("Tf ").Number(left).Number(Height - y).Append("Td <");
-        var face = font.Face;
-        var used = font.Used;
-        for (var i = 0; i < text.Length; i++)
-        {
-            int c = text[i];
-            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
-            {
-                c = char.ConvertToUtf32(text[i], text[i + 1]);
-                i++;
-            }
-
-            var glyph = face.Glyph(c);
-            if (glyph != 0 && !used.ContainsKey(glyph))
-            {
-                used[glyph] = c;
-            }
-
-            b.Hex4(glyph);
-        }
-
+        Glyphs(b, text, font);
         b.Append("> Tj ET\n");
         return this;
     }
@@ -334,6 +315,83 @@ public sealed class PdfPage
         return this;
     }
 
+    /// <summary>
+    /// Makes an area of the page a link to a web address: a click opens it.
+    /// </summary>
+    /// <param name="x">Left edge.</param>
+    /// <param name="y">Top edge.</param>
+    /// <param name="width">Width.</param>
+    /// <param name="height">Height.</param>
+    /// <param name="url">The address, for example <c>https://example.com</c> or <c>mailto:</c>.</param>
+    /// <returns>This page.</returns>
+    public PdfPage AddLink(double x, double y, double width, double height, string url)
+    {
+        Links.Add(new PdfLink(x, y, width, height, url ?? throw new ArgumentNullException(nameof(url)), null, 0));
+        return this;
+    }
+
+    /// <summary>
+    /// Makes an area of the page a link to a place in the document: a click jumps there.
+    /// </summary>
+    /// <param name="x">Left edge.</param>
+    /// <param name="y">Top edge.</param>
+    /// <param name="width">Width.</param>
+    /// <param name="height">Height.</param>
+    /// <param name="target">The page to jump to.</param>
+    /// <param name="targetY">The place on it, from the top.</param>
+    /// <returns>This page.</returns>
+    public PdfPage AddLink(double x, double y, double width, double height, PdfPage target, double targetY = 0)
+    {
+        Links.Add(new PdfLink(x, y, width, height, null, target ?? throw new ArgumentNullException(nameof(target)), targetY));
+        return this;
+    }
+
+    /// <summary>
+    /// Draws text turned about its start by an angle in degrees, counter-clockwise: a watermark.
+    /// </summary>
+    internal void DrawTurnedText(string text, double x, double y, PdfFont font, double size, string color, double degrees)
+    {
+        Fonts.Add(font.Resource);
+        Fill(color);
+        var radians = degrees * Math.PI / 180;
+        double cos = Math.Cos(radians), sin = Math.Sin(radians);
+        var b = _content.Append("BT /").Append(font.Resource).Append(' ').Number(size).Append("Tf ").Number(cos).Number(sin).Number(-sin).Number(cos)
+            .Number(x).Number(Height - y).Append("Tm <");
+        Glyphs(b, text, font);
+        b.Append("> Tj ET\n");
+    }
+
+    /// <summary>
+    /// The link areas of the page.
+    /// </summary>
+    internal List<PdfLink> Links { get; } = new List<PdfLink>();
+
+    /// <summary>
+    /// Writes the glyph ids of a text as hex and records them as used.
+    /// </summary>
+    private static void Glyphs(PdfBuffer b, string text, PdfFont font)
+    {
+        var face = font.Face;
+        var used = font.Used;
+        for (var i = 0; i < text.Length; i++)
+        {
+            int c = text[i];
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                c = char.ConvertToUtf32(text[i], text[i + 1]);
+                i++;
+            }
+
+            var glyph = face.Glyph(c);
+            if (glyph != 0 && !used.ContainsKey(glyph))
+            {
+                used[glyph] = c;
+            }
+
+            b.Hex4(glyph);
+        }
+    }
+
     private PdfBuffer Rectangle(double x, double y, double width, double height) =>
         _content.Number(x).Number(Height - y - height).Number(width).Number(height).Append("re ");
 
@@ -438,4 +496,35 @@ public sealed class PdfPage
 
         return _content;
     }
+}
+
+/// <summary>
+/// A link area of a page: to a web address, or to a place on a page of the document.
+/// </summary>
+internal sealed class PdfLink
+{
+    public PdfLink(double x, double y, double width, double height, string? url, PdfPage? target, double targetY)
+    {
+        X = x;
+        Y = y;
+        Width = width;
+        Height = height;
+        Url = url;
+        Target = target;
+        TargetY = targetY;
+    }
+
+    public double X { get; }
+
+    public double Y { get; }
+
+    public double Width { get; }
+
+    public double Height { get; }
+
+    public string? Url { get; }
+
+    public PdfPage? Target { get; }
+
+    public double TargetY { get; }
 }

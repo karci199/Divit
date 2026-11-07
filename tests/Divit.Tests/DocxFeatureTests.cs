@@ -34,7 +34,7 @@ public class DocxFeatureTests
     /// <summary>
     /// A page that uses every feature of this file.
     /// </summary>
-    private static DocxDocument Showcase()
+    internal static DocxDocument Showcase()
     {
         var doc = NewDocument(true);
         doc.Look.BodyFont = "Trebuchet MS";

@@ -116,6 +116,19 @@ public sealed partial class PdfDocument
     public PdfFont AddFont(byte[] font, int index = 0) => Add(new TrueTypeFont(font ?? throw new ArgumentNullException(nameof(font)), index));
 
     /// <summary>
+    /// Adds an entry to the bookmarks readers show beside the pages, such as the headings of a report. An entry
+    /// one level deeper than the one before it goes under it.
+    /// </summary>
+    /// <param name="title">The entry's text.</param>
+    /// <param name="page">The page it jumps to.</param>
+    /// <param name="y">The place on the page, from the top.</param>
+    /// <param name="level">Depth, 0 for the outermost.</param>
+    public void AddBookmark(string title, PdfPage page, double y = 0, int level = 0) =>
+        _bookmarks.Add((title ?? string.Empty, page ?? throw new ArgumentNullException(nameof(page)), y, Math.Max(0, level)));
+
+    private readonly List<(string Title, PdfPage Page, double Y, int Level)> _bookmarks = new List<(string, PdfPage, double, int)>();
+
+    /// <summary>
     /// Writes the document; an existing target is replaced only once the new file is complete.
     /// </summary>
     /// <param name="path">Target file.</param>
