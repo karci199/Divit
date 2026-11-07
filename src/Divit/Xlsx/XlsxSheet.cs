@@ -871,6 +871,12 @@ public sealed class XlsxSheet
     }
 
     /// <summary>
+    /// The number format of a cell; <c>null</c> for General.
+    /// </summary>
+    internal string? FormatAt(int row, int column) =>
+        _cells.TryGetValue(Key(row, column), out var cell) ? cell.Style.NumberFormat : null;
+
+    /// <summary>
     /// Whether a cell holds plain text without a formula, as a table header must.
     /// </summary>
     internal bool IsPlainText(int row, int column) =>

@@ -200,31 +200,44 @@ internal static class XlsxChartWriter
             w.WriteElementString("layout", ChartNs, null);
         }
 
-        w.WriteStartElement(polar ? "radarChart" : "scatterChart", ChartNs);
-        Val(w, polar ? "radarStyle" : "scatterStyle", polar ? "marker" : "smoothMarker");
-        Val(w, "varyColors", "0");
-        for (var i = 0; i < chart.Series.Count; i++)
+        var pie = chart.Kind == XlsxChartKind.Pie || chart.Kind == XlsxChartKind.Doughnut;
+        if (chart.Kind == XlsxChartKind.Scatter || polar)
         {
-            Series(w, chart, chart.Series[i], i, polar);
-        }
+            w.WriteStartElement(polar ? "radarChart" : "scatterChart", ChartNs);
+            Val(w, polar ? "radarStyle" : "scatterStyle", polar ? "marker" : "smoothMarker");
+            Val(w, "varyColors", "0");
+            for (var i = 0; i < chart.Series.Count; i++)
+            {
+                Series(w, chart, chart.Series[i], i, polar);
+            }
 
-        Val(w, "axId", "1");
-        Val(w, "axId", "2");
-        w.WriteEndElement();
-        if (polar)
+            DataLabels(w, chart.DataLabels, false, font, look);
+            Val(w, "axId", "1");
+            Val(w, "axId", "2");
+            w.WriteEndElement();
+            if (polar)
+            {
+                AngleAxis(w, chart, font, look);
+                Axis(w, chart.YAxis, 2, 1, "l", font, look, AxisMode.Radius);
+            }
+            else
+            {
+                Axis(w, chart.XAxis, 1, 2, "b", font, look, AxisMode.Scatter);
+                Axis(w, chart.YAxis, 2, 1, "l", font, look, AxisMode.Scatter);
+            }
+        }
+        else if (pie)
         {
-            AngleAxis(w, chart, font, look);
-            Axis(w, chart.YAxis, 2, 1, "l", font, look, true);
+            PiePlot(w, chart, font, look);
         }
         else
         {
-            Axis(w, chart.XAxis, 1, 2, "b", font, look, false);
-            Axis(w, chart.YAxis, 2, 1, "l", font, look, false);
+            CategoryPlot(w, chart, font, look);
         }
 
         w.WriteEndElement();
 
-        var legend = chart.ShowLegend ?? chart.Series.Count > 1;
+        var legend = chart.ShowLegend ?? (pie || chart.Series.Count > 1);
         if (legend)
         {
             w.WriteStartElement("legend", ChartNs);
@@ -371,14 +384,14 @@ internal static class XlsxChartWriter
     /// <summary>
     /// A column range: the reference (<c>'Sheet'!$A$7:$A$79</c>) plus a cache of its values.
     /// </summary>
-    private static void Values(XmlWriter w, string name, XlsxSheet sheet, int column, int firstRow, int lastRow)
+    private static void Values(XmlWriter w, string name, XlsxSheet sheet, int column, int firstRow, int lastRow, string? format = null)
     {
         var col = "$" + XlsxWorkbook.ColumnName(column) + "$";
         w.WriteStartElement(name, ChartNs);
         w.WriteStartElement("numRef", ChartNs);
         w.WriteElementString("f", ChartNs, "'" + sheet.Name.Replace("'", "''") + "'!" + col + Int(firstRow) + ":" + col + Int(lastRow));
         w.WriteStartElement("numCache", ChartNs);
-        w.WriteElementString("formatCode", ChartNs, "General");
+        w.WriteElementString("formatCode", ChartNs, format ?? "General");
         Val(w, "ptCount", Int(lastRow - firstRow + 1));
         for (var r = firstRow; r <= lastRow; r++)
         {
@@ -397,10 +410,31 @@ internal static class XlsxChartWriter
     }
 
     /// <summary>
-    /// A value axis (both axes of a scatter chart are value axes). Each axis crosses the other at its minimum, so the
-    /// axes stay in the bottom-left corner even when every value is negative.
+    /// The role of a value axis, which decides where it crosses the other axis and where its labels go.
     /// </summary>
-    private static void Axis(XmlWriter w, XlsxAxis axis, int id, int crossId, string position, string font, XlsxChartLook look, bool radius)
+    private enum AxisMode
+    {
+        /// <summary>
+        /// An axis of a scatter chart: crosses the other at its minimum, so the axes stay in the bottom-left corner
+        /// even when every value is negative.
+        /// </summary>
+        Scatter,
+
+        /// <summary>
+        /// The radius of a polar chart.
+        /// </summary>
+        Radius,
+
+        /// <summary>
+        /// The value axis of a column, bar, line or area chart: crosses at zero, columns sit between the ticks.
+        /// </summary>
+        Value,
+    }
+
+    /// <summary>
+    /// A value axis.
+    /// </summary>
+    private static void Axis(XmlWriter w, XlsxAxis axis, int id, int crossId, string position, string font, XlsxChartLook look, AxisMode mode, string? defaultFormat = null)
     {
         w.WriteStartElement("valAx", ChartNs);
         Val(w, "axId", Int(id));
@@ -411,47 +445,326 @@ internal static class XlsxChartWriter
         w.WriteEndElement();
         Val(w, "delete", "0");
         Val(w, "axPos", position);
-        if (axis.Gridlines)
+        if (axis.Gridlines ?? true)
         {
-            w.WriteStartElement("majorGridlines", ChartNs);
-            w.WriteStartElement("spPr", ChartNs);
-            Line(w, look.GridColor, 0.75, "solid");
-            w.WriteEndElement();
-            w.WriteEndElement();
+            Gridlines(w, look);
         }
 
-        if (axis.Title != null)
-        {
-            w.WriteStartElement("title", ChartNs);
-            w.WriteStartElement("tx", ChartNs);
-            w.WriteStartElement("rich", ChartNs);
-            w.WriteStartElement("bodyPr", DrawingNs);
-            if (position == "l") { w.WriteAttributeString("rot", "-5400000"); w.WriteAttributeString("vert", "horz"); }
-            w.WriteEndElement();
-            Paragraph(w, axis.Title, font, look.AxisTitleSize, true, look.TextColor);
-            w.WriteEndElement();
-            w.WriteEndElement();
-            Val(w, "overlay", "0");
-            w.WriteEndElement();
-        }
-
+        AxisTitle(w, axis, position, font, look);
+        var format = axis.NumberFormat ?? defaultFormat;
         w.WriteStartElement("numFmt", ChartNs);
-        w.WriteAttributeString("formatCode", axis.NumberFormat ?? "General");
-        w.WriteAttributeString("sourceLinked", axis.NumberFormat == null ? "1" : "0");
+        w.WriteAttributeString("formatCode", format ?? "General");
+        w.WriteAttributeString("sourceLinked", format == null ? "1" : "0");
         w.WriteEndElement();
-        Val(w, "majorTickMark", radius ? "cross" : "out");
+        Val(w, "majorTickMark", mode == AxisMode.Radius ? "cross" : "out");
         Val(w, "minorTickMark", "none");
-        Val(w, "tickLblPos", radius ? "nextTo" : "low");
+        Val(w, "tickLblPos", mode == AxisMode.Scatter ? "low" : "nextTo");
         w.WriteStartElement("spPr", ChartNs);
         Line(w, look.AxisColor, 0.75, "solid");
         w.WriteEndElement();
         TextProperties(w, font, look.TextSize, false, look.TextColor);
         Val(w, "crossAx", Int(crossId));
-        Val(w, "crosses", radius ? "autoZero" : "min");
-        Val(w, "crossBetween", radius ? "between" : "midCat");
+        Val(w, "crosses", mode == AxisMode.Scatter ? "min" : "autoZero");
+        Val(w, "crossBetween", mode == AxisMode.Scatter ? "midCat" : "between");
         if (axis.MajorUnit != null) { Val(w, "majorUnit", Num(axis.MajorUnit.Value)); }
         w.WriteEndElement();
     }
+
+    /// <summary>
+    /// The category axis of a column, bar, line or area chart. Labels sit at the low end, so they stay at the edge
+    /// when values are negative.
+    /// </summary>
+    private static void CategoryAxis(XmlWriter w, XlsxAxis axis, string position, string font, XlsxChartLook look)
+    {
+        w.WriteStartElement("catAx", ChartNs);
+        Val(w, "axId", "1");
+        w.WriteStartElement("scaling", ChartNs);
+        Val(w, "orientation", "minMax");
+        w.WriteEndElement();
+        Val(w, "delete", "0");
+        Val(w, "axPos", position);
+        if (axis.Gridlines ?? false)
+        {
+            Gridlines(w, look);
+        }
+
+        AxisTitle(w, axis, position, font, look);
+        w.WriteStartElement("numFmt", ChartNs);
+        w.WriteAttributeString("formatCode", axis.NumberFormat ?? "General");
+        w.WriteAttributeString("sourceLinked", axis.NumberFormat == null ? "1" : "0");
+        w.WriteEndElement();
+        Val(w, "majorTickMark", "out");
+        Val(w, "minorTickMark", "none");
+        Val(w, "tickLblPos", "low");
+        w.WriteStartElement("spPr", ChartNs);
+        Line(w, look.AxisColor, 0.75, "solid");
+        w.WriteEndElement();
+        TextProperties(w, font, look.TextSize, false, look.TextColor);
+        Val(w, "crossAx", "2");
+        Val(w, "crosses", "autoZero");
+        Val(w, "auto", "1");
+        Val(w, "lblAlgn", "ctr");
+        Val(w, "lblOffset", "100");
+        Val(w, "noMultiLvlLbl", "0");
+        w.WriteEndElement();
+    }
+
+    private static void Gridlines(XmlWriter w, XlsxChartLook look)
+    {
+        w.WriteStartElement("majorGridlines", ChartNs);
+        w.WriteStartElement("spPr", ChartNs);
+        Line(w, look.GridColor, 0.75, "solid");
+        w.WriteEndElement();
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// An axis title; turned upright on a vertical axis.
+    /// </summary>
+    private static void AxisTitle(XmlWriter w, XlsxAxis axis, string position, string font, XlsxChartLook look)
+    {
+        if (axis.Title == null)
+        {
+            return;
+        }
+
+        w.WriteStartElement("title", ChartNs);
+        w.WriteStartElement("tx", ChartNs);
+        w.WriteStartElement("rich", ChartNs);
+        w.WriteStartElement("bodyPr", DrawingNs);
+        if (position == "l") { w.WriteAttributeString("rot", "-5400000"); w.WriteAttributeString("vert", "horz"); }
+        w.WriteEndElement();
+        Paragraph(w, axis.Title, font, look.AxisTitleSize, true, look.TextColor);
+        w.WriteEndElement();
+        w.WriteEndElement();
+        Val(w, "overlay", "0");
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// Columns, bars, lines or areas over categories, with a category axis and a value axis.
+    /// </summary>
+    private static void CategoryPlot(XmlWriter w, XlsxChart chart, string font, XlsxChartLook look)
+    {
+        var kind = chart.Kind;
+        var bars = kind == XlsxChartKind.Column || kind == XlsxChartKind.Bar;
+        var element = bars ? "barChart" : kind == XlsxChartKind.Line ? "lineChart" : "areaChart";
+        w.WriteStartElement(element, ChartNs);
+        if (bars)
+        {
+            Val(w, "barDir", kind == XlsxChartKind.Bar ? "bar" : "col");
+        }
+
+        // Bars call side by side "clustered", lines and areas "standard".
+        var grouping = chart.Grouping == XlsxChartGrouping.Stacked ? "stacked"
+            : chart.Grouping == XlsxChartGrouping.PercentStacked ? "percentStacked"
+            : bars ? "clustered" : "standard";
+        Val(w, "grouping", grouping);
+        Val(w, "varyColors", "0");
+        for (var i = 0; i < chart.Series.Count; i++)
+        {
+            CategorySeries(w, chart, chart.Series[i], i);
+        }
+
+        DataLabels(w, chart.DataLabels, false, font, look);
+        if (bars)
+        {
+            Val(w, "gapWidth", Int(Clamp(chart.GapWidth, 0, 500)));
+
+            // Stacked columns lie on each other completely.
+            if (chart.Grouping != XlsxChartGrouping.Standard) { Val(w, "overlap", "100"); }
+        }
+        else if (kind == XlsxChartKind.Line)
+        {
+            Val(w, "marker", "1");
+        }
+
+        Val(w, "axId", "1");
+        Val(w, "axId", "2");
+        w.WriteEndElement();
+
+        // A bar chart turns the axes: categories on the left, values below.
+        var horizontal = kind == XlsxChartKind.Bar;
+        CategoryAxis(w, chart.XAxis, horizontal ? "l" : "b", font, look);
+        Axis(w, chart.YAxis, 2, 1, horizontal ? "b" : "l", font, look, AxisMode.Value,
+            chart.Grouping == XlsxChartGrouping.PercentStacked ? "0%" : null);
+    }
+
+    private static void CategorySeries(XmlWriter w, XlsxChart chart, XlsxSeries s, int index)
+    {
+        var look = chart.Look;
+        var color = s.OwnColor ? s.Line.Color : PaletteColor(look, index);
+        w.WriteStartElement("ser", ChartNs);
+        Val(w, "idx", Int(index));
+        Val(w, "order", Int(index));
+        w.WriteStartElement("tx", ChartNs);
+        w.WriteElementString("v", ChartNs, s.Name);
+        w.WriteEndElement();
+        w.WriteStartElement("spPr", ChartNs);
+        if (chart.Kind == XlsxChartKind.Line)
+        {
+            Line(w, color, s.OwnColor ? s.Line.Width : look.LineWidth, s.OwnColor ? s.Line.Dash : "solid");
+        }
+        else
+        {
+            Solid(w, color);
+            w.WriteStartElement("ln", DrawingNs); w.WriteElementString("noFill", DrawingNs, null); w.WriteEndElement();
+        }
+
+        w.WriteEndElement();
+        if (chart.Kind == XlsxChartKind.Column || chart.Kind == XlsxChartKind.Bar)
+        {
+            Val(w, "invertIfNegative", "0");
+        }
+
+        if (chart.Kind == XlsxChartKind.Line)
+        {
+            Marker(w, s, color);
+        }
+
+        Categories(w, chart.Sheet, s.XColumn, s.FirstRow, s.LastRow);
+        Values(w, "val", chart.Sheet, s.YColumn, s.FirstRow, s.LastRow);
+        if (chart.Kind == XlsxChartKind.Line)
+        {
+            Val(w, "smooth", s.Smooth ? "1" : "0");
+        }
+
+        w.WriteEndElement();
+    }
+
+    private static void Marker(XmlWriter w, XlsxSeries s, string lineColor)
+    {
+        w.WriteStartElement("marker", ChartNs);
+        if (s.MarkerSize > 0)
+        {
+            var color = s.MarkerColor ?? lineColor;
+            Val(w, "symbol", "circle");
+            Val(w, "size", Int(Clamp(s.MarkerSize, 2, 72)));
+            w.WriteStartElement("spPr", ChartNs);
+            Solid(w, color);
+            Line(w, color, 0.75, "solid");
+            w.WriteEndElement();
+        }
+        else
+        {
+            Val(w, "symbol", "none");
+        }
+
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// Pie (first series) or doughnut (a ring per series): each slice takes the next palette colour, with a thin
+    /// white line between slices.
+    /// </summary>
+    private static void PiePlot(XmlWriter w, XlsxChart chart, string font, XlsxChartLook look)
+    {
+        var doughnut = chart.Kind == XlsxChartKind.Doughnut;
+        w.WriteStartElement(doughnut ? "doughnutChart" : "pieChart", ChartNs);
+        Val(w, "varyColors", "1");
+        for (var i = 0; i < chart.Series.Count; i++)
+        {
+            var s = chart.Series[i];
+            w.WriteStartElement("ser", ChartNs);
+            Val(w, "idx", Int(i));
+            Val(w, "order", Int(i));
+            w.WriteStartElement("tx", ChartNs);
+            w.WriteElementString("v", ChartNs, s.Name);
+            w.WriteEndElement();
+            if (s.Explosion > 0) { Val(w, "explosion", Int(Clamp(s.Explosion, 0, 400))); }
+            for (var p = 0; p <= s.LastRow - s.FirstRow; p++)
+            {
+                w.WriteStartElement("dPt", ChartNs);
+                Val(w, "idx", Int(p));
+                Val(w, "bubble3D", "0");
+                w.WriteStartElement("spPr", ChartNs);
+                Solid(w, PaletteColor(look, p));
+                Line(w, "#FFFFFF", 0.75, "solid");
+                w.WriteEndElement();
+                w.WriteEndElement();
+            }
+
+            Categories(w, chart.Sheet, s.XColumn, s.FirstRow, s.LastRow);
+            Values(w, "val", chart.Sheet, s.YColumn, s.FirstRow, s.LastRow);
+            w.WriteEndElement();
+        }
+
+        DataLabels(w, chart.DataLabels, true, font, look);
+        Val(w, "firstSliceAng", Int(Clamp(chart.FirstSliceAngle, 0, 360)));
+        if (doughnut)
+        {
+            Val(w, "holeSize", Int(Clamp(chart.HoleSize, 10, 90)));
+        }
+
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// Labels on the points, for all series of the chart; nothing when none are asked for.
+    /// </summary>
+    private static void DataLabels(XmlWriter w, XlsxDataLabels labels, bool pie, string font, XlsxChartLook look)
+    {
+        if (labels == XlsxDataLabels.None)
+        {
+            return;
+        }
+
+        w.WriteStartElement("dLbls", ChartNs);
+        TextProperties(w, font, look.TextSize, false, look.TextColor);
+        Val(w, "showLegendKey", "0");
+        Val(w, "showVal", (labels & XlsxDataLabels.Value) != 0 ? "1" : "0");
+        Val(w, "showCatName", (labels & XlsxDataLabels.Category) != 0 ? "1" : "0");
+        Val(w, "showSerName", (labels & XlsxDataLabels.SeriesName) != 0 ? "1" : "0");
+        Val(w, "showPercent", pie && (labels & XlsxDataLabels.Percent) != 0 ? "1" : "0");
+        Val(w, "showBubbleSize", "0");
+        if (pie) { Val(w, "showLeaderLines", "1"); }
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// The categories of a series: text when any cell holds text, otherwise numbers (or dates) in the format of the
+    /// first cell.
+    /// </summary>
+    private static void Categories(XmlWriter w, XlsxSheet sheet, int column, int firstRow, int lastRow)
+    {
+        var text = false;
+        for (var r = firstRow; r <= lastRow && !text; r++)
+        {
+            text = sheet.NumberAt(r, column) == null && sheet.TextAt(r, column) != null;
+        }
+
+        if (!text)
+        {
+            Values(w, "cat", sheet, column, firstRow, lastRow, sheet.FormatAt(firstRow, column));
+            return;
+        }
+
+        var col = "$" + XlsxWorkbook.ColumnName(column) + "$";
+        w.WriteStartElement("cat", ChartNs);
+        w.WriteStartElement("strRef", ChartNs);
+        w.WriteElementString("f", ChartNs, "'" + sheet.Name.Replace("'", "''") + "'!" + col + Int(firstRow) + ":" + col + Int(lastRow));
+        w.WriteStartElement("strCache", ChartNs);
+        Val(w, "ptCount", Int(lastRow - firstRow + 1));
+        for (var r = firstRow; r <= lastRow; r++)
+        {
+            if (sheet.TextAt(r, column) is string value)
+            {
+                w.WriteStartElement("pt", ChartNs);
+                w.WriteAttributeString("idx", Int(r - firstRow));
+                w.WriteElementString("v", ChartNs, Divit.Packaging.OfficeText.Clean(value));
+                w.WriteEndElement();
+            }
+        }
+
+        w.WriteEndElement();
+        w.WriteEndElement();
+        w.WriteEndElement();
+    }
+
+    private static string PaletteColor(XlsxChartLook look, int index) =>
+        look.Palette.Count == 0 ? look.SeriesLine.Color : look.Palette[index % look.Palette.Count];
+
+    private static int Clamp(int value, int min, int max) => System.Math.Max(min, System.Math.Min(max, value));
 
     #endregion
 

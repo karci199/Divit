@@ -6,8 +6,8 @@ using System;
 using System.Collections.Generic;
 
 /// <summary>
-/// An Excel chart embedded in a sheet: a smooth-line scatter (X – Y) or a polar chart, with series taken from cell
-/// ranges on the sheet.
+/// An Excel chart embedded in a sheet, with series taken from cell ranges on the sheet: scatter (X – Y), polar,
+/// column, bar, line, area, pie or doughnut.
 /// </summary>
 /// <remarks>
 /// This is a native Excel chart: the user can select and edit it, and it follows the cells when their values change.
@@ -65,9 +65,36 @@ public sealed class XlsxChart
     public int Height { get; }
 
     /// <summary>
-    /// Chart kind: scatter (X – Y) or polar (angle – radius).
+    /// Chart kind. Set it before adding series: a series takes its defaults (smoothing) from the kind.
     /// </summary>
     public XlsxChartKind Kind { get; set; } = XlsxChartKind.Scatter;
+
+    /// <summary>
+    /// How the series of a column, bar, line or area chart stand to each other: side by side, stacked, or stacked to
+    /// 100 %.
+    /// </summary>
+    public XlsxChartGrouping Grouping { get; set; }
+
+    /// <summary>
+    /// Gap between the column or bar groups, in percent of a column's width (0–500).
+    /// </summary>
+    public int GapWidth { get; set; } = 150;
+
+    /// <summary>
+    /// The hole of a doughnut chart, in percent of its size (10–90).
+    /// </summary>
+    public int HoleSize { get; set; } = 50;
+
+    /// <summary>
+    /// Angle of the first slice of a pie or doughnut chart, in degrees clockwise from the top (0–360).
+    /// </summary>
+    public int FirstSliceAngle { get; set; }
+
+    /// <summary>
+    /// What the labels on the points show; none by default. <see cref="XlsxDataLabels.Percent"/> applies to pie and
+    /// doughnut charts only.
+    /// </summary>
+    public XlsxDataLabels DataLabels { get; set; }
 
     /// <summary>
     /// First title line (large, bold); no title when empty.
@@ -90,7 +117,8 @@ public sealed class XlsxChart
     public XlsxAxis YAxis { get; } = new XlsxAxis();
 
     /// <summary>
-    /// Whether the legend shows below the plot; <c>null</c> shows it when there is more than one series.
+    /// Whether the legend shows below the plot; <c>null</c> shows it when there is more than one series, and always for
+    /// pie and doughnut charts (their legend names the slices).
     /// </summary>
     public bool? ShowLegend { get; set; }
 
@@ -116,14 +144,16 @@ public sealed class XlsxChart
     #region Public methods
 
     /// <summary>
-    /// Adds a series from two columns of the sheet; X and Y share the same row range.
+    /// Adds a series from two columns of the sheet; X and Y share the same row range. In a column, bar, line, area, pie
+    /// or doughnut chart the X column holds the categories (text, numbers or dates) and the Y column the values.
     /// </summary>
     /// <param name="name">Name shown in the legend.</param>
     /// <param name="firstRow">First data row.</param>
     /// <param name="lastRow">Last data row.</param>
-    /// <param name="xColumn">Column of the X values.</param>
+    /// <param name="xColumn">Column of the X values or categories.</param>
     /// <param name="yColumn">Column of the Y values.</param>
-    /// <param name="line">Line style; <c>null</c> uses the look's series line.</param>
+    /// <param name="line">Line style, whose colour also fills columns, bars and areas; <c>null</c> uses the look: its
+    /// series line for scatter and polar charts, the next palette colour for the others.</param>
     /// <returns>The new series.</returns>
     /// <exception cref="ArgumentException">The row range is empty.</exception>
     public XlsxSeries AddSeries(string name, int firstRow, int lastRow, int xColumn, int yColumn, XlsxLine? line = null)
@@ -133,9 +163,40 @@ public sealed class XlsxChart
             throw new ArgumentException(Messages.Format(Strings.SeriesRangeEmpty, firstRow, lastRow));
         }
 
-        var series = new XlsxSeries(name, firstRow, lastRow, xColumn, yColumn, line ?? Look.SeriesLine);
+        var series = new XlsxSeries(name, firstRow, lastRow, xColumn, yColumn, line ?? Look.SeriesLine)
+        {
+            OwnColor = line != null,
+            Smooth = Kind == XlsxChartKind.Scatter,
+        };
         _series.Add(series);
         return series;
+    }
+
+    /// <summary>
+    /// Adds one series per column of a table on the sheet: the header row names the series, the category column
+    /// labels the points. The usual way to chart a table of figures (months down, products across).
+    /// </summary>
+    /// <param name="headerRow">Row of the series names.</param>
+    /// <param name="lastRow">Last data row; data starts below the header row.</param>
+    /// <param name="categoryColumn">Column of the categories.</param>
+    /// <param name="firstValueColumn">First value column.</param>
+    /// <param name="lastValueColumn">Last value column.</param>
+    /// <returns>The new series, in column order.</returns>
+    /// <exception cref="ArgumentException">There is no data row or no value column.</exception>
+    public IReadOnlyList<XlsxSeries> AddSeriesFromColumns(int headerRow, int lastRow, int categoryColumn, int firstValueColumn, int lastValueColumn)
+    {
+        if (lastValueColumn < firstValueColumn)
+        {
+            throw new ArgumentException(Messages.Get(Strings.RangeReversed));
+        }
+
+        var added = new List<XlsxSeries>();
+        for (var c = firstValueColumn; c <= lastValueColumn; c++)
+        {
+            added.Add(AddSeries(Sheet.TextAt(headerRow, c) ?? XlsxWorkbook.ColumnName(c), headerRow + 1, lastRow, categoryColumn, c));
+        }
+
+        return added;
     }
 
     /// <summary>
@@ -177,6 +238,89 @@ public enum XlsxChartKind
     /// the centre. A constant series draws a circle.
     /// </summary>
     Polar,
+
+    /// <summary>
+    /// Vertical columns over categories.
+    /// </summary>
+    Column,
+
+    /// <summary>
+    /// Horizontal bars; Excel lists the first category at the bottom.
+    /// </summary>
+    Bar,
+
+    /// <summary>
+    /// Lines over categories, evenly spaced (for uneven X values use <see cref="Scatter"/>).
+    /// </summary>
+    Line,
+
+    /// <summary>
+    /// Filled areas over categories.
+    /// </summary>
+    Area,
+
+    /// <summary>
+    /// A pie of the first series; the categories name the slices.
+    /// </summary>
+    Pie,
+
+    /// <summary>
+    /// A ring per series, with a hole in the middle (<see cref="XlsxChart.HoleSize"/>).
+    /// </summary>
+    Doughnut,
+}
+
+/// <summary>
+/// How the series of a column, bar, line or area chart stand to each other.
+/// </summary>
+public enum XlsxChartGrouping
+{
+    /// <summary>
+    /// Side by side (columns, bars) or each on its own (lines, areas).
+    /// </summary>
+    Standard,
+
+    /// <summary>
+    /// On top of each other: the top shows the sum.
+    /// </summary>
+    Stacked,
+
+    /// <summary>
+    /// On top of each other, scaled to 100 %: the shares of the sum.
+    /// </summary>
+    PercentStacked,
+}
+
+/// <summary>
+/// What the labels on the points of a chart show; values combine.
+/// </summary>
+[Flags]
+public enum XlsxDataLabels
+{
+    /// <summary>
+    /// No labels.
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// The value.
+    /// </summary>
+    Value = 1,
+
+    /// <summary>
+    /// The share of the whole (pie and doughnut charts).
+    /// </summary>
+    Percent = 2,
+
+    /// <summary>
+    /// The category name.
+    /// </summary>
+    Category = 4,
+
+    /// <summary>
+    /// The series name.
+    /// </summary>
+    SeriesName = 8,
 }
 
 /// <summary>
@@ -210,9 +354,10 @@ public sealed class XlsxAxis
     public string? NumberFormat { get; set; }
 
     /// <summary>
-    /// Whether gridlines are shown.
+    /// Whether gridlines are shown; <c>null</c> shows them on value axes and leaves them off on category axes, as
+    /// Excel does.
     /// </summary>
-    public bool Gridlines { get; set; } = true;
+    public bool? Gridlines { get; set; }
 }
 
 /// <summary>
@@ -285,6 +430,16 @@ public sealed class XlsxSeries
     /// to be listed.
     /// </summary>
     public bool ShowInLegend { get; set; } = true;
+
+    /// <summary>
+    /// How far the slices of a pie or doughnut chart stand out from the centre, in percent of the radius (0–400).
+    /// </summary>
+    public int Explosion { get; set; }
+
+    /// <summary>
+    /// Whether the line style was given; otherwise column-like charts colour the series from the look's palette.
+    /// </summary>
+    internal bool OwnColor { get; set; }
 }
 
 /// <summary>
@@ -405,4 +560,15 @@ public sealed class XlsxChartLook
     /// Muted line for secondary references: grey and dotted.
     /// </summary>
     public XlsxLine MutedLine { get; set; } = new XlsxLine("#8C8C8C", 1.5, "sysDot");
+
+    /// <summary>
+    /// Colours of the series of column, bar, line and area charts, and of the slices of pie and doughnut charts, used
+    /// in turn; the accents of the default Office theme.
+    /// </summary>
+    public IReadOnlyList<string> Palette { get; set; } = new[] { "#4472C4", "#ED7D31", "#A5A5A5", "#FFC000", "#5B9BD5", "#70AD47" };
+
+    /// <summary>
+    /// Width of the lines of a line chart, in points.
+    /// </summary>
+    public double LineWidth { get; set; } = 2.25;
 }

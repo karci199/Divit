@@ -9,7 +9,7 @@ it needs neither Office nor any NuGet package at run time.
 
 | Format | State |
 |---|---|
-| Excel (`.xlsx`) | Writing: text, numbers, dates, booleans, styles (strikethrough, double underline, super/subscript, indent, rotation, shrink to fit), merges, borders, column widths, hidden and grouped rows and columns, frozen panes, auto filter, formulas, data validation, conditional formatting (rules, colour scales, data bars, icon sets), rich text, tables with totals rows, theme, built-in cell styles, comments, images, links (sheets, files, web, e-mail), defined names, hidden sheets, tab order and active tab, sheet and workbook protection (SHA-512, editable cells), print settings (paper, margins, centring, gridlines), scatter and polar charts |
+| Excel (`.xlsx`) | Writing: text, numbers, dates, booleans, styles (strikethrough, double underline, super/subscript, indent, rotation, shrink to fit), merges, borders, column widths, hidden and grouped rows and columns, frozen panes, auto filter, formulas, data validation, conditional formatting (rules, colour scales, data bars, icon sets), rich text, tables with totals rows, theme, built-in cell styles, comments, images, links (sheets, files, web, e-mail), defined names, hidden sheets, tab order and active tab, sheet and workbook protection (SHA-512, editable cells), print settings (paper, margins, centring, gridlines), charts (scatter, polar, column, bar, line, area, pie, doughnut; stacked and 100 %, data labels) |
 | Word (`.docx`) | Planned |
 
 Divit writes documents; it does not read or edit existing ones. Build the document again from your own data instead.
@@ -57,7 +57,7 @@ a test-only dependency. Sample files land in `artifacts/gallery` for a look in E
 
 ## Roadmap
 
-1. Excel: more chart kinds (column, bar, line, area, pie), sparklines, streaming for very large sheets,
+1. Excel: streaming for very large sheets, combined charts and secondary axes, sparklines,
    pivot tables, images in more formats
 2. Word (`.docx`): paragraphs, styles, tables, images, headers and footers, page setup, on the shared package layer
 3. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV, PDF
