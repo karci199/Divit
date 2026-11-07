@@ -1,6 +1,7 @@
 ﻿#nullable enable
 namespace Divit.Xlsx;
 
+using Divit.Packaging;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -455,13 +456,13 @@ public sealed partial class XlsxWorkbook
 
         if (rule.Below) { w.WriteAttributeString("aboveAverage", "0"); }
         if (rule.Operator != null) { w.WriteAttributeString("operator", rule.Operator); }
-        if (rule.Text != null) { w.WriteAttributeString("text", StringTable.Clean(rule.Text)); }
+        if (rule.Text != null) { w.WriteAttributeString("text", OfficeText.Clean(rule.Text)); }
 
         // Text and blank rules store the formula Excel evaluates, relative to the top-left cell.
         var formula = rule.CellFormula(CellName(highlight.Row1, highlight.Column1));
         foreach (var text in formula != null ? new[] { formula } : rule.Formulas.ToArray())
         {
-            w.WriteElementString("formula", MainNs, StringTable.Clean(text));
+            w.WriteElementString("formula", MainNs, OfficeText.Clean(text));
         }
     }
 
@@ -479,12 +480,12 @@ public sealed partial class XlsxWorkbook
         if (validation.Type == "list" && !validation.ShowDropDown) { w.WriteAttributeString("showDropDown", "1"); }
         w.WriteAttributeString("showInputMessage", "1");
         w.WriteAttributeString("showErrorMessage", "1");
-        if (validation.ErrorTitle != null) { w.WriteAttributeString("errorTitle", StringTable.Clean(validation.ErrorTitle)); }
-        if (validation.ErrorMessage != null) { w.WriteAttributeString("error", StringTable.Clean(validation.ErrorMessage)); }
-        if (validation.InputTitle != null) { w.WriteAttributeString("promptTitle", StringTable.Clean(validation.InputTitle)); }
-        if (validation.InputMessage != null) { w.WriteAttributeString("prompt", StringTable.Clean(validation.InputMessage)); }
+        if (validation.ErrorTitle != null) { w.WriteAttributeString("errorTitle", OfficeText.Clean(validation.ErrorTitle)); }
+        if (validation.ErrorMessage != null) { w.WriteAttributeString("error", OfficeText.Clean(validation.ErrorMessage)); }
+        if (validation.InputTitle != null) { w.WriteAttributeString("promptTitle", OfficeText.Clean(validation.InputTitle)); }
+        if (validation.InputMessage != null) { w.WriteAttributeString("prompt", OfficeText.Clean(validation.InputMessage)); }
         w.WriteAttributeString("sqref", range);
-        w.WriteElementString("formula1", MainNs, StringTable.Clean(validation.Formula1));
+        w.WriteElementString("formula1", MainNs, OfficeText.Clean(validation.Formula1));
         if (validation.Formula2 != null) { w.WriteElementString("formula2", MainNs, validation.Formula2); }
         w.WriteEndElement();
     }
@@ -508,7 +509,7 @@ public sealed partial class XlsxWorkbook
         w.WriteStartElement("authors", MainNs);
         foreach (var author in authors)
         {
-            w.WriteElementString("author", MainNs, StringTable.Clean(author));
+            w.WriteElementString("author", MainNs, OfficeText.Clean(author));
         }
 
         w.WriteEndElement();
@@ -521,7 +522,7 @@ public sealed partial class XlsxWorkbook
             w.WriteStartElement("text", MainNs);
             w.WriteStartElement("t", MainNs);
             w.WriteAttributeString("xml", "space", null, "preserve");
-            w.WriteString(StringTable.Clean(comment.Text));
+            w.WriteString(OfficeText.Clean(comment.Text));
             w.WriteEndElement();
             w.WriteEndElement();
             w.WriteEndElement();
@@ -641,18 +642,18 @@ public sealed partial class XlsxWorkbook
         {
             if (cell.Value is string) { w.WriteAttributeString("t", "str"); }
             if (cell.Value is bool) { w.WriteAttributeString("t", "b"); }
-            w.WriteElementString("f", MainNs, StringTable.Clean(cell.Formula));
+            w.WriteElementString("f", MainNs, OfficeText.Clean(cell.Formula));
             switch (cell.Value)
             {
                 case string result:
-                    w.WriteElementString("v", MainNs, StringTable.Clean(result));
+                    w.WriteElementString("v", MainNs, OfficeText.Clean(result));
                     break;
                 case bool result:
                     w.WriteElementString("v", MainNs, result ? "1" : "0");
                     break;
                 case double result:
                     w.WriteStartElement("v", MainNs);
-                    w.WriteChars(buffer, 0, FormatDouble(buffer, result));
+                    w.WriteChars(buffer, 0, OfficeText.FormatDouble(buffer, result));
                     w.WriteEndElement();
                     break;
             }
@@ -661,7 +662,7 @@ public sealed partial class XlsxWorkbook
         {
             w.WriteAttributeString("t", "s");
             w.WriteStartElement("v", MainNs);
-            w.WriteChars(buffer, 0, FormatInt(buffer, 0, strings.Index(text)));
+            w.WriteChars(buffer, 0, OfficeText.FormatInt(buffer, 0, strings.Index(text)));
             w.WriteEndElement();
         }
         else if (cell.Value is bool flag)
@@ -672,7 +673,7 @@ public sealed partial class XlsxWorkbook
         else if (cell.Value is double number)
         {
             w.WriteStartElement("v", MainNs);
-            w.WriteChars(buffer, 0, FormatDouble(buffer, number));
+            w.WriteChars(buffer, 0, OfficeText.FormatDouble(buffer, number));
             w.WriteEndElement();
         }
 
@@ -682,7 +683,7 @@ public sealed partial class XlsxWorkbook
     private static void WriteNumberAttribute(XmlWriter w, string name, int value, char[] buffer)
     {
         w.WriteStartAttribute(name);
-        w.WriteChars(buffer, 0, FormatInt(buffer, 0, value));
+        w.WriteChars(buffer, 0, OfficeText.FormatInt(buffer, 0, value));
         w.WriteEndAttribute();
     }
 
@@ -705,74 +706,7 @@ public sealed partial class XlsxWorkbook
             buffer[i] = buffer[start + i];
         }
 
-        return FormatInt(buffer, letters, row);
-    }
-
-    /// <summary>
-    /// Writes a number into the buffer as <c>ToString("R")</c> would; returns its length.
-    /// </summary>
-    /// <remarks>
-    /// Whole numbers below 10^15 (counters, years, IDs) are written digit by digit on every runtime: "R" gives them
-    /// without exponent or point, so the text is the same. Other numbers go to the runtime's own round-trip format.
-    /// </remarks>
-    private static int FormatDouble(char[] buffer, double number)
-    {
-        // Negative zero is left to the runtime: .NET writes "-0", .NET Framework "0".
-        if (number == Math.Floor(number) && Math.Abs(number) < 1e15 && (number != 0 || BitConverter.DoubleToInt64Bits(number) == 0))
-        {
-            var whole = (long)number;
-            var position = 0;
-            if (whole < 0)
-            {
-                buffer[position++] = '-';
-                whole = -whole;
-            }
-
-            var digits = 1;
-            for (var rest = whole; rest >= 10; rest /= 10)
-            {
-                digits++;
-            }
-
-            var end = position + digits;
-            for (var i = end - 1; i >= position; i--)
-            {
-                buffer[i] = (char)('0' + (int)(whole % 10));
-                whole /= 10;
-            }
-
-            return end;
-        }
-
-#if NET
-        number.TryFormat(buffer, out var length, "R", CultureInfo.InvariantCulture);
-        return length;
-#else
-        var text = number.ToString("R", CultureInfo.InvariantCulture);
-        text.CopyTo(0, buffer, 0, text.Length);
-        return text.Length;
-#endif
-    }
-
-    /// <summary>
-    /// Writes a non-negative whole number into the buffer from <paramref name="position"/>; returns the end position.
-    /// </summary>
-    private static int FormatInt(char[] buffer, int position, int value)
-    {
-        var digits = 1;
-        for (var rest = value; rest >= 10; rest /= 10)
-        {
-            digits++;
-        }
-
-        var end = position + digits;
-        for (var i = end - 1; i >= position; i--)
-        {
-            buffer[i] = (char)('0' + (value % 10));
-            value /= 10;
-        }
-
-        return end;
+        return OfficeText.FormatInt(buffer, letters, row);
     }
 
     #endregion

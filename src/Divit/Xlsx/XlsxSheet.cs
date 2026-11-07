@@ -1,6 +1,7 @@
 ﻿#nullable enable
 namespace Divit.Xlsx;
 
+using Divit.Packaging;
 using Divit.Properties;
 using System;
 using System.Collections.Generic;
@@ -240,7 +241,7 @@ public sealed class XlsxSheet
     public void AddImage(int row, int column, byte[] png, int width, int height)
     {
         Check(row, column);
-        if (png.Length < 8 || png[0] != 0x89 || png[1] != 0x50 || png[2] != 0x4E || png[3] != 0x47)
+        if (!OfficeText.IsPng(png))
         {
             throw new ArgumentException(Messages.Get(Strings.ImageNotPng), nameof(png));
         }

@@ -1,6 +1,7 @@
 ﻿#nullable enable
 namespace Divit.Xlsx;
 
+using Divit.Packaging;
 using Divit.Properties;
 using System;
 using System.Collections.Generic;
@@ -29,8 +30,6 @@ public sealed partial class XlsxWorkbook
 
     private const string MainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
     private const string RelNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-    private const string PackageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
-    private const string ContentTypesNs = "http://schemas.openxmlformats.org/package/2006/content-types";
 
     private readonly List<XlsxSheet> _sheets = new List<XlsxSheet>();
 
@@ -270,116 +269,86 @@ public sealed partial class XlsxWorkbook
         var plans = PlanSheets();
         var styles = new StyleTable(this);
         var strings = new StringTable();
-        var temp = path + ".tmp";
-
-        try
+        OpcPackage.Save(path, Created, package =>
         {
-            using (var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 65536))
-            using (var zip = new ZipArchive(file, ZipArchiveMode.Create))
+            // Sheets first: the style and string tables fill while they are written.
+            for (var i = 0; i < _sheets.Count; i++)
             {
-                // Sheets first: the style and string tables fill while they are written.
-                for (var i = 0; i < _sheets.Count; i++)
-                {
-                    Part(zip, "xl/worksheets/sheet" + (i + 1) + ".xml", w => WriteSheet(w, _sheets[i], i == _active, plans[i], styles, strings));
-                }
-
-                // The sheets' relationships, then their notes: a comment list and the legacy VML shapes Excel draws them with.
-                for (var i = 0; i < _sheets.Count; i++)
-                {
-                    var plan = plans[i];
-                    if (plan.Relationships.Count > 0)
-                    {
-                        Part(zip, "xl/worksheets/_rels/sheet" + (i + 1) + ".xml.rels", w =>
-                        {
-                            w.WriteStartElement("Relationships", PackageRelNs);
-                            foreach (var rel in plan.Relationships)
-                            {
-                                Relationship(w, rel.Id, rel.Type, rel.Target, rel.External);
-                            }
-
-                            w.WriteEndElement();
-                        });
-                    }
-
-                    if (plan.Comments > 0)
-                    {
-                        var sheet = _sheets[i];
-                        Part(zip, "xl/comments" + plan.Comments + ".xml", w => WriteComments(w, sheet));
-                        Part(zip, "xl/drawings/vmlDrawing" + plan.Comments + ".vml", w => WriteNoteShapes(w, sheet, plan.Comments), false);
-                    }
-                }
-
-                // Every sheet with charts or images: sheet → drawing layer → charts and images. Numbers run across the workbook.
-                _charts = 0;
-                var media = 0;
-                for (var i = 0; i < _sheets.Count; i++)
-                {
-                    var charts = _sheets[i].Charts;
-                    var images = _sheets[i].Images;
-                    if (plans[i].Drawing == 0)
-                    {
-                        continue;
-                    }
-
-                    var drawing = plans[i].Drawing;
-                    var firstChart = _charts + 1;
-                    var firstImage = media + 1;
-                    foreach (var image in images)
-                    {
-                        var entry = Entry(zip, "xl/media/image" + (++media) + ".png", CompressionLevel.NoCompression);
-                        using (var stream = entry.Open())
-                        {
-                            stream.Write(image.Png, 0, image.Png.Length);
-                        }
-                    }
-
-                    Part(zip, "xl/drawings/drawing" + drawing + ".xml", w => XlsxChartWriter.WriteDrawing(w, charts, images));
-                    Part(zip, "xl/drawings/_rels/drawing" + drawing + ".xml.rels", w =>
-                    {
-                        w.WriteStartElement("Relationships", PackageRelNs);
-                        for (var k = 0; k < charts.Count; k++)
-                        {
-                            Relationship(w, "rId" + (k + 1), "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart", "../charts/chart" + (firstChart + k) + ".xml");
-                        }
-
-                        for (var k = 0; k < images.Count; k++)
-                        {
-                            Relationship(w, "rId" + (charts.Count + k + 1), "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image", "../media/image" + (firstImage + k) + ".png");
-                        }
-
-                        w.WriteEndElement();
-                    });
-                    foreach (var chart in charts)
-                    {
-                        var number = ++_charts;
-                        Part(zip, "xl/charts/chart" + number + ".xml", w => XlsxChartWriter.WriteChart(w, chart, DefaultFontName));
-                    }
-                }
-
-                Part(zip, "xl/styles.xml", styles.Write);
-                Part(zip, "xl/sharedStrings.xml", strings.Write);
-                Part(zip, "xl/workbook.xml", WriteWorkbook);
-                Part(zip, "xl/_rels/workbook.xml.rels", WriteWorkbookRels);
-                Part(zip, "docProps/core.xml", WriteCore);
-                Part(zip, "docProps/app.xml", WriteApp);
-                Part(zip, "_rels/.rels", WriteRootRels);
-                Part(zip, "[Content_Types].xml", WriteContentTypes);
+                package.XmlPart("xl/worksheets/sheet" + (i + 1) + ".xml", w => WriteSheet(w, _sheets[i], i == _active, plans[i], styles, strings));
             }
 
-            if (File.Exists(path))
+            // The sheets' relationships, then their notes: a comment list and the legacy VML shapes Excel draws them with.
+            for (var i = 0; i < _sheets.Count; i++)
             {
-                File.Delete(path);
+                var plan = plans[i];
+                package.Relationships("xl/worksheets/_rels/sheet" + (i + 1) + ".xml.rels", plan.Relationships);
+                if (plan.Comments > 0)
+                {
+                    var sheet = _sheets[i];
+                    package.XmlPart("xl/comments" + plan.Comments + ".xml", w => WriteComments(w, sheet));
+                    package.XmlPart("xl/drawings/vmlDrawing" + plan.Comments + ".vml", w => WriteNoteShapes(w, sheet, plan.Comments), false);
+                }
             }
 
-            File.Move(temp, path);
-        }
-        finally
-        {
-            if (File.Exists(temp))
+            // Every sheet with charts or images: sheet → drawing layer → charts and images. Numbers run across the workbook.
+            _charts = 0;
+            var media = 0;
+            for (var i = 0; i < _sheets.Count; i++)
             {
-                File.Delete(temp);
+                var charts = _sheets[i].Charts;
+                var images = _sheets[i].Images;
+                if (plans[i].Drawing == 0)
+                {
+                    continue;
+                }
+
+                var drawing = plans[i].Drawing;
+                var links = new RelationshipList();
+                foreach (var image in images)
+                {
+                    package.BinaryPart("xl/media/image" + (++media) + ".png", image.Png, false);
+                }
+
+                for (var k = 0; k < charts.Count; k++)
+                {
+                    links.Add(RelationshipTypes.Chart, "../charts/chart" + (_charts + 1 + k) + ".xml");
+                }
+
+                for (var k = 0; k < images.Count; k++)
+                {
+                    links.Add(RelationshipTypes.Image, "../media/image" + (media - images.Count + 1 + k) + ".png");
+                }
+
+                package.XmlPart("xl/drawings/drawing" + drawing + ".xml", w => XlsxChartWriter.WriteDrawing(w, charts, images));
+                package.Relationships("xl/drawings/_rels/drawing" + drawing + ".xml.rels", links);
+                foreach (var chart in charts)
+                {
+                    var number = ++_charts;
+                    package.XmlPart("xl/charts/chart" + number + ".xml", w => XlsxChartWriter.WriteChart(w, chart, DefaultFontName));
+                }
             }
-        }
+
+            package.XmlPart("xl/styles.xml", styles.Write);
+            package.XmlPart("xl/sharedStrings.xml", strings.Write);
+            package.XmlPart("xl/workbook.xml", WriteWorkbook);
+            package.Relationships("xl/_rels/workbook.xml.rels", WorkbookRelationships());
+            package.DocumentProperties(new DocumentProperties(Application)
+            {
+                Title = Title,
+                Subject = Subject,
+                Keywords = Keywords,
+                Description = Description,
+                Author = Author,
+                Created = Created,
+            });
+
+            var root = new RelationshipList();
+            root.Add(RelationshipTypes.OfficeDocument, "xl/workbook.xml");
+            root.Add(RelationshipTypes.CoreProperties, "docProps/core.xml");
+            root.Add(RelationshipTypes.ExtendedProperties, "docProps/app.xml");
+            package.Relationships("_rels/.rels", root);
+            AddContentTypes(package);
+        });
     }
 
     /// <summary>
@@ -407,7 +376,7 @@ public sealed partial class XlsxWorkbook
 
     #region Helpers
 
-    private static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
+    private static string Int(int value) => OfficeText.Int(value);
 
     /// <summary>
     /// Excel's rules for a defined name: letter, underscore or backslash first, then letters, digits, underscores, dots
@@ -526,16 +495,7 @@ public sealed partial class XlsxWorkbook
     /// <summary>
     /// <c>#RRGGBB</c> → Excel's <c>FFRRGGBB</c>.
     /// </summary>
-    internal static string Argb(string color)
-    {
-        var hex = color.TrimStart('#').ToUpperInvariant();
-        if (hex.Length != 6)
-        {
-            throw new ArgumentException(Messages.Format(Strings.ColorInvalid, color));
-        }
-
-        return "FF" + hex;
-    }
+    internal static string Argb(string color) => "FF" + OfficeText.Rgb(color);
 
     #endregion
 }

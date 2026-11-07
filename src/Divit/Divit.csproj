@@ -10,4 +10,8 @@
     <IsTrimmable Condition="'$(TargetFramework)' == 'net10.0'">true</IsTrimmable>
     <IsAotCompatible Condition="'$(TargetFramework)' == 'net10.0'">true</IsAotCompatible>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The tests check the internal package layer directly. -->
+    <InternalsVisibleTo Include="Divit.Tests" />
+  </ItemGroup>
 </Project>

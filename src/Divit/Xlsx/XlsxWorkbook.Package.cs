@@ -1,62 +1,17 @@
 ﻿#nullable enable
 namespace Divit.Xlsx;
 
-using System;
+using Divit.Packaging;
 using System.Collections.Generic;
-using System.Globalization;
-using System.IO.Compression;
 using System.Linq;
-using System.Text;
 using System.Xml;
 
 /// <content>
-/// The package: zip entries, part numbering and the workbook-level parts (workbook, relationships, content types,
-/// document properties).
+/// The workbook-level parts: part numbering, workbook, its relationships and the content types of the package.
 /// </content>
 public sealed partial class XlsxWorkbook
 {
-    #region Parts
-
-    private delegate void PartWriter(XmlWriter w);
-
-    /// <summary>
-    /// A zip entry stamped with <see cref="Created"/>: without it the entry carries the clock time of the save and two
-    /// saves of the same workbook differ in bytes. Zip times run from 1980 to 2107; outside that the clock is used.
-    /// </summary>
-    private ZipArchiveEntry Entry(ZipArchive zip, string name, CompressionLevel level)
-    {
-        var entry = zip.CreateEntry(name, level);
-        if (Created is DateTime created)
-        {
-            var utc = created.ToUniversalTime();
-            if (utc.Year >= 1980 && utc.Year <= 2107)
-            {
-                entry.LastWriteTime = new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Unspecified), TimeSpan.Zero);
-            }
-        }
-
-        return entry;
-    }
-
-    /// <summary>
-    /// Writes one XML part; <paramref name="declaration"/> is off only for the legacy VML part, which Excel writes
-    /// without one.
-    /// </summary>
-    private void Part(ZipArchive zip, string name, PartWriter write, bool declaration = true)
-    {
-        var entry = Entry(zip, name, CompressionLevel.Fastest);
-        var settings = new XmlWriterSettings { Encoding = new UTF8Encoding(false), Indent = false, CloseOutput = true, OmitXmlDeclaration = !declaration };
-        using (var w = XmlWriter.Create(entry.Open(), settings))
-        {
-            if (declaration)
-            {
-                w.WriteStartDocument(true);
-            }
-
-            write(w);
-            w.WriteEndDocument();
-        }
-    }
+    #region Package
 
     /// <summary>
     /// Numbers the parts of every sheet and gives their relationships ids, before anything is written: the sheet XML
@@ -64,7 +19,6 @@ public sealed partial class XlsxWorkbook
     /// </summary>
     private SheetPlan[] PlanSheets()
     {
-        const string Rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
         var plans = new SheetPlan[_sheets.Count];
         _drawings = 0;
         _notes = 0;
@@ -75,19 +29,19 @@ public sealed partial class XlsxWorkbook
             if (sheet.Charts.Count > 0 || sheet.Images.Count > 0)
             {
                 plan.Drawing = ++_drawings;
-                plan.DrawingId = plan.Add(Rel + "drawing", "../drawings/drawing" + plan.Drawing + ".xml", false);
+                plan.DrawingId = plan.Relationships.Add(RelationshipTypes.Drawing, "../drawings/drawing" + plan.Drawing + ".xml");
             }
 
             if (sheet.Comments.Count > 0)
             {
                 plan.Comments = ++_notes;
-                plan.Add(Rel + "comments", "../comments" + plan.Comments + ".xml", false);
-                plan.NoteShapesId = plan.Add(Rel + "vmlDrawing", "../drawings/vmlDrawing" + plan.Comments + ".vml", false);
+                plan.Relationships.Add(RelationshipTypes.Comments, "../comments" + plan.Comments + ".xml");
+                plan.NoteShapesId = plan.Relationships.Add(RelationshipTypes.VmlDrawing, "../drawings/vmlDrawing" + plan.Comments + ".vml");
             }
 
             foreach (var link in sheet.UrlLinks)
             {
-                plan.LinkIds.Add(plan.Add(Rel + "hyperlink", link.Url, true));
+                plan.LinkIds.Add(plan.Relationships.Add(RelationshipTypes.Hyperlink, link.Url, true));
             }
 
             plans[i] = plan;
@@ -177,125 +131,60 @@ public sealed partial class XlsxWorkbook
         w.WriteEndElement();
     }
 
-    private void WriteWorkbookRels(XmlWriter w)
+    /// <summary>
+    /// The workbook's relationships: the sheets as rId1 … rIdN, then styles and shared strings.
+    /// </summary>
+    private RelationshipList WorkbookRelationships()
     {
-        w.WriteStartElement("Relationships", PackageRelNs);
+        var list = new RelationshipList();
         for (var i = 0; i < _sheets.Count; i++)
         {
-            Relationship(w, "rId" + (i + 1), "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet", "worksheets/sheet" + (i + 1) + ".xml");
+            list.Add(RelationshipTypes.Worksheet, "worksheets/sheet" + (i + 1) + ".xml");
         }
 
-        Relationship(w, "rId" + (_sheets.Count + 1), "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles", "styles.xml");
-        Relationship(w, "rId" + (_sheets.Count + 2), "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings", "sharedStrings.xml");
-        w.WriteEndElement();
+        list.Add(RelationshipTypes.Styles, "styles.xml");
+        list.Add(RelationshipTypes.SharedStrings, "sharedStrings.xml");
+        return list;
     }
 
-    private static void WriteRootRels(XmlWriter w)
+    /// <summary>
+    /// Content types: extensions first, then the parts in the order of the workbook.
+    /// </summary>
+    private void AddContentTypes(OpcPackage package)
     {
-        w.WriteStartElement("Relationships", PackageRelNs);
-        Relationship(w, "rId1", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument", "xl/workbook.xml");
-        Relationship(w, "rId2", "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties", "docProps/core.xml");
-        Relationship(w, "rId3", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties", "docProps/app.xml");
-        w.WriteEndElement();
-    }
-
-    private void WriteContentTypes(XmlWriter w)
-    {
-        w.WriteStartElement("Types", ContentTypesNs);
-        Default(w, "rels", "application/vnd.openxmlformats-package.relationships+xml");
-        Default(w, "xml", "application/xml");
-        Default(w, "png", "image/png");
+        package.Default("rels", ContentTypes.Relationships);
+        package.Default("xml", ContentTypes.Xml);
+        package.Default("png", ContentTypes.Png);
         if (_notes > 0)
         {
-            Default(w, "vml", "application/vnd.openxmlformats-officedocument.vmlDrawing");
+            package.Default("vml", ContentTypes.Vml);
         }
 
-        Override(w, "/xl/workbook.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml");
+        package.Override("/xl/workbook.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml");
         for (var i = 0; i < _sheets.Count; i++)
         {
-            Override(w, "/xl/worksheets/sheet" + (i + 1) + ".xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml");
+            package.Override("/xl/worksheets/sheet" + (i + 1) + ".xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml");
         }
 
         for (var i = 1; i <= _drawings; i++)
         {
-            Override(w, "/xl/drawings/drawing" + i + ".xml", "application/vnd.openxmlformats-officedocument.drawing+xml");
+            package.Override("/xl/drawings/drawing" + i + ".xml", ContentTypes.Drawing);
         }
 
         for (var i = 1; i <= _charts; i++)
         {
-            Override(w, "/xl/charts/chart" + i + ".xml", "application/vnd.openxmlformats-officedocument.drawingml.chart+xml");
+            package.Override("/xl/charts/chart" + i + ".xml", ContentTypes.Chart);
         }
 
         for (var i = 1; i <= _notes; i++)
         {
-            Override(w, "/xl/comments" + i + ".xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml");
+            package.Override("/xl/comments" + i + ".xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml");
         }
 
-        Override(w, "/xl/styles.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml");
-        Override(w, "/xl/sharedStrings.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml");
-        Override(w, "/docProps/core.xml", "application/vnd.openxmlformats-package.core-properties+xml");
-        Override(w, "/docProps/app.xml", "application/vnd.openxmlformats-officedocument.extended-properties+xml");
-        w.WriteEndElement();
-    }
-
-    private void WriteCore(XmlWriter w)
-    {
-        const string Cp = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
-        const string Dc = "http://purl.org/dc/elements/1.1/";
-        const string Dcterms = "http://purl.org/dc/terms/";
-        const string Xsi = "http://www.w3.org/2001/XMLSchema-instance";
-        var now = (Created ?? DateTime.UtcNow).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
-        w.WriteStartElement("cp", "coreProperties", Cp);
-        w.WriteAttributeString("xmlns", "dc", null, Dc);
-        w.WriteAttributeString("xmlns", "dcterms", null, Dcterms);
-        w.WriteAttributeString("xmlns", "xsi", null, Xsi);
-        if (Title != null) { w.WriteElementString("dc", "title", Dc, Title); }
-        if (Subject != null) { w.WriteElementString("dc", "subject", Dc, Subject); }
-        w.WriteElementString("dc", "creator", Dc, Author ?? Application);
-        if (Keywords != null) { w.WriteElementString("cp", "keywords", Cp, Keywords); }
-        if (Description != null) { w.WriteElementString("dc", "description", Dc, Description); }
-        foreach (var name in new[] { "created", "modified" })
-        {
-            w.WriteStartElement("dcterms", name, Dcterms);
-            w.WriteAttributeString("xsi", "type", Xsi, "dcterms:W3CDTF");
-            w.WriteString(now);
-            w.WriteEndElement();
-        }
-
-        w.WriteEndElement();
-    }
-
-    private void WriteApp(XmlWriter w)
-    {
-        w.WriteStartElement("Properties", "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties");
-        w.WriteElementString("Application", "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties", Application);
-        w.WriteEndElement();
-    }
-
-    private static void Relationship(XmlWriter w, string id, string type, string target, bool external = false)
-    {
-        w.WriteStartElement("Relationship", PackageRelNs);
-        w.WriteAttributeString("Id", id);
-        w.WriteAttributeString("Type", type);
-        w.WriteAttributeString("Target", target);
-        if (external) { w.WriteAttributeString("TargetMode", "External"); }
-        w.WriteEndElement();
-    }
-
-    private static void Default(XmlWriter w, string extension, string type)
-    {
-        w.WriteStartElement("Default", ContentTypesNs);
-        w.WriteAttributeString("Extension", extension);
-        w.WriteAttributeString("ContentType", type);
-        w.WriteEndElement();
-    }
-
-    private static void Override(XmlWriter w, string part, string type)
-    {
-        w.WriteStartElement("Override", ContentTypesNs);
-        w.WriteAttributeString("PartName", part);
-        w.WriteAttributeString("ContentType", type);
-        w.WriteEndElement();
+        package.Override("/xl/styles.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml");
+        package.Override("/xl/sharedStrings.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml");
+        package.Override("/docProps/core.xml", ContentTypes.CoreProperties);
+        package.Override("/docProps/app.xml", ContentTypes.ExtendedProperties);
     }
 
     #endregion
@@ -305,8 +194,7 @@ public sealed partial class XlsxWorkbook
     /// </summary>
     private sealed class SheetPlan
     {
-        public readonly List<(string Id, string Type, string Target, bool External)> Relationships =
-            new List<(string, string, string, bool)>();
+        public readonly RelationshipList Relationships = new RelationshipList();
 
         /// <summary>
         /// Relationship ids of the URL links, in the order of <see cref="XlsxSheet.UrlLinks"/>.
@@ -320,12 +208,5 @@ public sealed partial class XlsxWorkbook
         public string? DrawingId;
 
         public string? NoteShapesId;
-
-        public string Add(string type, string target, bool external)
-        {
-            var id = "rId" + Int(Relationships.Count + 1);
-            Relationships.Add((id, type, target, external));
-            return id;
-        }
     }
 }

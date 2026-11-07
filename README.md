@@ -59,7 +59,6 @@ a test-only dependency. Sample files land in `artifacts/gallery` for a look in E
 
 1. Excel: tables (ListObject), more chart kinds (column, bar, line, area, pie), theme colours and cell styles,
    workbook protection, rich text, sparklines, streaming for very large sheets
-2. Shared package layer (zip, content types, relationships, document properties) for every format
-3. Word (`.docx`): paragraphs, styles, tables, images, headers and footers, page setup
-4. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV, PDF
-5. Macros last, if ever: a prebuilt `vbaProject.bin` or COM
+2. Word (`.docx`): paragraphs, styles, tables, images, headers and footers, page setup, on the shared package layer
+3. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV, PDF
+4. Macros last, if ever: a prebuilt `vbaProject.bin` or COM

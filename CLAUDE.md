@@ -2,6 +2,8 @@
 
 Dependency-free .NET library that writes Office documents (xlsx now, docx next). `src/Divit` is the library
 (`netstandard2.0;net10.0`), `tests/Divit.Tests` the xUnit tests (`net48;net10.0`). See README.md for the roadmap.
+`src/Divit/Packaging` is the internal layer every format shares (zip and atomic save, content types, relationships,
+document properties, allocation-free number formatting); `src/Divit/Xlsx` builds on it, Word will too.
 
 ## Rules
 
