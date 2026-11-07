@@ -629,53 +629,74 @@ public sealed partial class DocxDocument
     {
         foreach (var paragraph in Paragraphs(container))
         {
-            if (paragraph.List is DocxList list && !parts.ListIds.ContainsKey(list))
-            {
-                parts.ListIds[list] = parts.ListIds.Count + 2;
-                parts.ListKinds.Add(list.Kind);
-            }
+            PlanParagraph(paragraph, container, relationships, parts, body);
+        }
+    }
 
-            foreach (var run in paragraph.Runs)
+    /// <summary>
+    /// Plans one paragraph of a part, as <see cref="PlanRuns"/> does for all of them.
+    /// </summary>
+    private static void PlanParagraph(DocxParagraph paragraph, DocxContainer container, RelationshipList relationships, Parts parts, bool body)
+    {
+        if (paragraph.List is DocxList list && !parts.ListIds.ContainsKey(list))
+        {
+            parts.ListIds[list] = parts.ListIds.Count + 2;
+            parts.ListKinds.Add(list.Kind);
+            parts.HasLists = true;
+            if (!parts.HasNumbering)
             {
-                if (run.Image != null)
+                // A list first met in a streamed section: the relationships are written after the body.
+                parts.HasNumbering = true;
+                parts.Relationships.Add(RelType + "numbering", "numbering.xml");
+            }
+        }
+
+        foreach (var run in paragraph.Runs)
+        {
+            if (run.Image != null)
+            {
+                var name = "image" + (parts.Media.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "." + run.ImageInfo.Extension;
+                parts.Media.Add((name, run.Image));
+                parts.MediaTypes[run.ImageInfo.Extension] = run.ImageInfo.ContentType;
+                parts.ImageIds[run] = relationships.Add(RelationshipTypes.Image, "media/" + name);
+            }
+            else if (run.LinkUrl != null)
+            {
+                parts.LinkIds[run] = relationships.Add(RelationshipTypes.Hyperlink, run.LinkUrl, true);
+                parts.HasLinks = true;
+            }
+            else if (run.LinkTarget != null)
+            {
+                parts.Targets.Add(run.LinkTarget);
+                parts.HasLinks = true;
+            }
+            else if (run.ReferenceTarget != null)
+            {
+                (run.ReferenceKind == DocxReferenceKind.Label ? parts.LabelTargets : parts.Targets).Add(run.ReferenceTarget);
+                parts.HasReferences = true;
+            }
+            else if (run.CheckBox != null)
+            {
+                parts.CheckBoxParts.Add(container);
+            }
+            else if (run.Footnote != null && body)
+            {
+                if (!parts.HasFootnoteRuns)
                 {
-                    var name = "image" + (parts.Media.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "." + run.ImageInfo.Extension;
-                    parts.Media.Add((name, run.Image));
-                    parts.MediaTypes[run.ImageInfo.Extension] = run.ImageInfo.ContentType;
-                    parts.ImageIds[run] = relationships.Add(RelationshipTypes.Image, "media/" + name);
+                    parts.HasFootnoteRuns = true;
+                    parts.Relationships.Add(RelType + "footnotes", "footnotes.xml");
                 }
-                else if (run.LinkUrl != null)
-                {
-                    parts.LinkIds[run] = relationships.Add(RelationshipTypes.Hyperlink, run.LinkUrl, true);
-                    parts.HasLinks = true;
-                }
-                else if (run.LinkTarget != null)
-                {
-                    parts.Targets.Add(run.LinkTarget);
-                    parts.HasLinks = true;
-                }
-                else if (run.ReferenceTarget != null)
-                {
-                    (run.ReferenceKind == DocxReferenceKind.Label ? parts.LabelTargets : parts.Targets).Add(run.ReferenceTarget);
-                    parts.HasReferences = true;
-                }
-                else if (run.CheckBox != null)
-                {
-                    parts.CheckBoxParts.Add(container);
-                }
-                else if (run.Footnote != null && body)
-                {
-                    parts.FootnoteIds[run] = parts.Footnotes.Count + 1;
-                    parts.Footnotes.Add(run);
-                }
-                else if (run.Math != null)
-                {
-                    parts.MathParts.Add(container);
-                }
-                else if (run.Citation != null)
-                {
-                    parts.Citations.Add(run.Citation);
-                }
+
+                parts.FootnoteIds[run] = parts.Footnotes.Count + 1;
+                parts.Footnotes.Add(run);
+            }
+            else if (run.Math != null)
+            {
+                parts.MathParts.Add(container);
+            }
+            else if (run.Citation != null)
+            {
+                parts.Citations.Add(run.Citation);
             }
         }
     }

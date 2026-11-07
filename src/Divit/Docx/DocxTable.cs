@@ -148,6 +148,8 @@ public sealed class DocxTable : DocxBlock
             throw new ArgumentException(Messages.Format(Strings.TableWidthsCount, texts.Length, Columns), nameof(texts));
         }
 
+        // In a streamed section the rows so far are written now, so a long table is not kept.
+        BeforeRow?.Invoke(this);
         var row = new DocxTableRow(this, Columns);
         for (var i = 0; i < texts.Length; i++)
         {
@@ -160,6 +162,16 @@ public sealed class DocxTable : DocxBlock
         _rows.Add(row);
         return row;
     }
+
+    /// <summary>
+    /// Called before a row is added, while the table belongs to a streamed section.
+    /// </summary>
+    internal Action<DocxTable>? BeforeRow { get; set; }
+
+    /// <summary>
+    /// Forgets the rows written so far.
+    /// </summary>
+    internal void ClearRows() => _rows.Clear();
 
     internal DocxAlignment? AlignmentOf(int index) => _alignments[index];
 

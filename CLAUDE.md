@@ -6,7 +6,7 @@ Dependency-free .NET library that writes Office documents (xlsx and docx). `src/
 document properties, theme part, image format and size, SHA-512 password hash, allocation-free number formatting);
 `src/Divit/Xlsx` and `src/Divit/Docx` build on it. `XlsxWorkbook` is split into partial files by part (`.Package`,
 `.Sheet`, `.Styles`, `.Strings`, `.Tables`, `.Pivot`, `.Stream`), `DocxDocument` likewise (`.Body`, `.Styles`, `.Tables`,
-`.Marks`, `.Math`, `.Sources`).
+`.Marks`, `.Math`, `.Sources`, `.Stream`).
 
 ## Rules
 

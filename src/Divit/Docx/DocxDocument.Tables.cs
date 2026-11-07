@@ -28,6 +28,20 @@ public sealed partial class DocxDocument
     /// </summary>
     private void WriteTable(XmlWriter w, DocxTable table, Scope scope)
     {
+        var state = StartTable(w, table, scope);
+        foreach (var row in table.Rows)
+        {
+            WriteRow(w, row, state, scope);
+        }
+
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// Opens a table with its properties and grid; the rows follow, and the caller closes it.
+    /// </summary>
+    private static TableState StartTable(XmlWriter w, DocxTable table, Scope scope)
+    {
         var widths = new int[table.Columns];
         for (var c = 0; c < table.Columns; c++)
         {
@@ -68,70 +82,97 @@ public sealed partial class DocxDocument
         }
 
         w.WriteEndElement();
+        return new TableState(table, widths);
+    }
 
-        // Per column: rows still covered by a row span above, and how many columns that span is wide.
-        var covered = new int[table.Columns];
-        var coveredSpan = new int[table.Columns];
-        foreach (var row in table.Rows)
+    /// <summary>
+    /// One row: its properties, then a cell per column, or one for the columns a span covers; under a row span the
+    /// cell continues the merge.
+    /// </summary>
+    private void WriteRow(XmlWriter w, DocxTableRow row, TableState state, Scope scope)
+    {
+        var table = state.Table;
+        var widths = state.Widths;
+        var covered = state.Covered;
+        var coveredSpan = state.CoveredSpan;
+        w.WriteStartElement("tr", Main);
+        if (row.KeepTogether || row.Height != null || row.IsHeader)
         {
-            w.WriteStartElement("tr", Main);
-            if (row.KeepTogether || row.Height != null || row.IsHeader)
+            w.WriteStartElement("trPr", Main);
+            if (row.KeepTogether) { w.WriteElementString("cantSplit", Main, null); }
+            if (row.Height is double height)
             {
-                w.WriteStartElement("trPr", Main);
-                if (row.KeepTogether) { w.WriteElementString("cantSplit", Main, null); }
-                if (row.Height is double height)
-                {
-                    w.WriteStartElement("trHeight", Main);
-                    w.WriteAttributeString("w", "val", Main, Int(DocxUnits.Twips(height)));
-                    w.WriteAttributeString("w", "hRule", Main, "atLeast");
-                    w.WriteEndElement();
-                }
-
-                if (row.IsHeader) { w.WriteElementString("tblHeader", Main, null); }
+                w.WriteStartElement("trHeight", Main);
+                w.WriteAttributeString("w", "val", Main, Int(DocxUnits.Twips(height)));
+                w.WriteAttributeString("w", "hRule", Main, "atLeast");
                 w.WriteEndElement();
             }
 
-            var c = 0;
-            while (c < table.Columns)
-            {
-                if (covered[c] > 0)
-                {
-                    var span = coveredSpan[c];
-                    covered[c]--;
-                    CellStart(w, Sum(widths, c, span), span, "continue", null, DocxCellAlignment.Top);
-                    w.WriteElementString("p", Main, null);
-                    w.WriteEndElement();
-                    c += span;
-                    continue;
-                }
-
-                var cell = row.Cells[c];
-                var columns = Math.Max(1, Math.Min(cell.ColumnSpan, table.Columns - c));
-                string? merge = null;
-                if (cell.RowSpan > 1)
-                {
-                    merge = "restart";
-                    covered[c] = cell.RowSpan - 1;
-                    coveredSpan[c] = columns;
-                }
-
-                CellStart(w, Sum(widths, c, columns), columns, merge, cell.Shading, cell.VerticalAlignment);
-                var inner = new Scope(scope.Parts, scope.Headings, scope.Captions) { Width = Sum(widths, c, columns) - 216 };
-                WriteBlocks(w, cell, inner, table.AlignmentOf(c));
-                if (cell.Blocks.Count == 0 || cell.Blocks[cell.Blocks.Count - 1] is DocxTable)
-                {
-                    // A cell ends with a paragraph, also after a nested table.
-                    w.WriteElementString("p", Main, null);
-                }
-
-                w.WriteEndElement();
-                c += columns;
-            }
-
+            if (row.IsHeader) { w.WriteElementString("tblHeader", Main, null); }
             w.WriteEndElement();
         }
 
+        var c = 0;
+        while (c < table.Columns)
+        {
+            if (covered[c] > 0)
+            {
+                var span = coveredSpan[c];
+                covered[c]--;
+                CellStart(w, Sum(widths, c, span), span, "continue", null, DocxCellAlignment.Top);
+                w.WriteElementString("p", Main, null);
+                w.WriteEndElement();
+                c += span;
+                continue;
+            }
+
+            var cell = row.Cells[c];
+            var columns = Math.Max(1, Math.Min(cell.ColumnSpan, table.Columns - c));
+            string? merge = null;
+            if (cell.RowSpan > 1)
+            {
+                merge = "restart";
+                covered[c] = cell.RowSpan - 1;
+                coveredSpan[c] = columns;
+            }
+
+            CellStart(w, Sum(widths, c, columns), columns, merge, cell.Shading, cell.VerticalAlignment);
+            var inner = new Scope(scope.Parts, scope.Headings, scope.Captions) { Width = Sum(widths, c, columns) - 216 };
+            WriteBlocks(w, cell, inner, table.AlignmentOf(c));
+            if (cell.Blocks.Count == 0 || cell.Blocks[cell.Blocks.Count - 1] is DocxTable)
+            {
+                // A cell ends with a paragraph, also after a nested table.
+                w.WriteElementString("p", Main, null);
+            }
+
+            w.WriteEndElement();
+            c += columns;
+        }
+
         w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// What the rows of a table share while it is written: the column widths, and per column the rows still covered
+    /// by a row span above and how many columns that span is wide.
+    /// </summary>
+    private sealed class TableState
+    {
+        public TableState(DocxTable table, int[] widths)
+        {
+            Table = table;
+            Widths = widths;
+            Covered = new int[table.Columns];
+            CoveredSpan = new int[table.Columns];
+        }
+
+        public DocxTable Table { get; }
+
+        public int[] Widths { get; }
+
+        public int[] Covered { get; }
+
+        public int[] CoveredSpan { get; }
     }
 
     /// <summary>

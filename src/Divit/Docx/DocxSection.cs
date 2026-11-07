@@ -1,6 +1,8 @@
 ﻿#nullable enable
 namespace Divit.Docx;
 
+using System;
+
 /// <summary>
 /// Paper sizes.
 /// </summary>
@@ -221,6 +223,11 @@ public sealed class DocxSection : DocxContainer
     /// Colour of the watermark, drawn half transparent.
     /// </summary>
     public string WatermarkColor { get; set; } = "#C0C0C0";
+
+    /// <summary>
+    /// Writes the content of a streamed section while the document is saved; <c>null</c> for a stored section.
+    /// </summary>
+    internal Action<DocxStreamWriter>? Source { get; set; }
 
     /// <summary>
     /// The header of every page (or the odd pages when <see cref="EvenPageHeader"/> is used). Created when first used.

@@ -22,7 +22,7 @@ public sealed partial class DocxDocument
         var scope = new Scope(parts, parts.HeadingList, Captions());
         w.WriteStartElement("w", "document", Main);
         w.WriteAttributeString("xmlns", "r", null, RelNs);
-        bool checkBoxes = false, math = false;
+        bool checkBoxes = HasStreamedSections(), math = checkBoxes;
         foreach (var section in _sections)
         {
             checkBoxes |= parts.CheckBoxParts.Contains(section);
@@ -36,7 +36,14 @@ public sealed partial class DocxDocument
         {
             var section = _sections[i];
             scope.Width = section.TextWidthTwips;
-            WriteBlocks(w, section, scope);
+            if (section.Source != null)
+            {
+                WriteStreamed(w, section, scope);
+            }
+            else
+            {
+                WriteBlocks(w, section, scope);
+            }
             if (i < _sections.Count - 1)
             {
                 // A section ends with a paragraph that carries its properties.

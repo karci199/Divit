@@ -897,7 +897,7 @@ public abstract class DocxContainer
             paragraph.Add(text!, font);
         }
 
-        _blocks.Add(paragraph);
+        Append(paragraph);
         return paragraph;
     }
 
@@ -914,7 +914,7 @@ public abstract class DocxContainer
     public DocxTable AddTable(int columns)
     {
         var table = new DocxTable(columns);
-        _blocks.Add(table);
+        Append(table);
         return table;
     }
 
@@ -925,5 +925,10 @@ public abstract class DocxContainer
     /// <returns>The list, to add items.</returns>
     public DocxList AddList(DocxListKind kind = DocxListKind.Bullet) => new DocxList(this, kind);
 
-    internal void AddBlock(DocxBlock block) => _blocks.Add(block);
+    internal void AddBlock(DocxBlock block) => Append(block);
+
+    /// <summary>
+    /// Takes a new block: keeps it, or in a streamed section writes the one before it.
+    /// </summary>
+    internal virtual void Append(DocxBlock block) => _blocks.Add(block);
 }
