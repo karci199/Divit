@@ -6,6 +6,7 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using Xunit;
@@ -117,6 +118,12 @@ public class XlsxWorkbookTests
         FullWorkbook().Save(b);
 
         Assert.Equal(File.ReadAllBytes(a), File.ReadAllBytes(b));
+
+        // Two quick saves can fall into the same two-second zip time slot; the entry times must come from Created.
+        using (var zip = new ZipArchive(File.OpenRead(a), ZipArchiveMode.Read))
+        {
+            Assert.All(zip.Entries, e => Assert.InRange((XlsxTestKit.FixedTime - e.LastWriteTime.DateTime).TotalSeconds, 0, 1.999));
+        }
     }
 
     [Fact]

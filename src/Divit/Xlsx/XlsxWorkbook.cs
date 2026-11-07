@@ -199,7 +199,7 @@ public sealed class XlsxWorkbook
                     var firstImage = media + 1;
                     foreach (var image in images)
                     {
-                        var entry = zip.CreateEntry("xl/media/image" + (++media) + ".png", CompressionLevel.NoCompression);
+                        var entry = Entry(zip, "xl/media/image" + (++media) + ".png", CompressionLevel.NoCompression);
                         using (var stream = entry.Open())
                         {
                             stream.Write(image.Png, 0, image.Png.Length);
@@ -288,9 +288,28 @@ public sealed class XlsxWorkbook
 
     private delegate void PartWriter(XmlWriter w);
 
-    private static void Part(ZipArchive zip, string name, PartWriter write)
+    /// <summary>
+    /// A zip entry stamped with <see cref="Created"/>: without it the entry carries the clock time of the save and two
+    /// saves of the same workbook differ in bytes. Zip times run from 1980 to 2107; outside that the clock is used.
+    /// </summary>
+    private ZipArchiveEntry Entry(ZipArchive zip, string name, CompressionLevel level)
     {
-        var entry = zip.CreateEntry(name, CompressionLevel.Fastest);
+        var entry = zip.CreateEntry(name, level);
+        if (Created is DateTime created)
+        {
+            var utc = created.ToUniversalTime();
+            if (utc.Year >= 1980 && utc.Year <= 2107)
+            {
+                entry.LastWriteTime = new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Unspecified), TimeSpan.Zero);
+            }
+        }
+
+        return entry;
+    }
+
+    private void Part(ZipArchive zip, string name, PartWriter write)
+    {
+        var entry = Entry(zip, name, CompressionLevel.Fastest);
         var settings = new XmlWriterSettings { Encoding = new UTF8Encoding(false), Indent = false, CloseOutput = true };
         using (var w = XmlWriter.Create(entry.Open(), settings))
         {
@@ -319,16 +338,46 @@ public sealed class XlsxWorkbook
         w.WriteEndElement();
         w.WriteEndElement();
 
-        // Cells in row order, then column order.
-        var keys = sheet.Cells.Select(p => p.Key).ToList();
-        keys.Sort();
-        var cells = sheet.Cells.ToDictionary(p => p.Key, p => p.Value);
-        var rows = new SortedSet<int>(keys.Select(XlsxSheet.RowOf));
-        rows.UnionWith(sheet.Heights.Keys);
+        // Cells in row order, then column order: the keys sort that way. Two parallel arrays sort faster than pairs.
+        var count = sheet.Cells.Count;
+        var keys = new long[count];
+        var cells = new XlsxSheet.Cell[count];
+        var n = 0;
+        foreach (var pair in sheet.Cells)
+        {
+            keys[n] = pair.Key;
+            cells[n] = pair.Value;
+            n++;
+        }
+
+        Array.Sort(keys, cells);
+
+        // Rows with an explicit height are written even when they hold no cell.
+        var heights = sheet.Heights.Keys.ToArray();
+        Array.Sort(heights);
 
         w.WriteStartElement("dimension", MainNs);
-        w.WriteAttributeString("ref", keys.Count == 0 ? "A1"
-            : "A1:" + CellName(rows.Max, Math.Max(1, keys.Max(k => XlsxSheet.ColumnOf(k)))));
+        if (count == 0)
+        {
+            w.WriteAttributeString("ref", "A1");
+        }
+        else
+        {
+            var lastColumn = 1;
+            foreach (var key in keys)
+            {
+                lastColumn = Math.Max(lastColumn, XlsxSheet.ColumnOf(key));
+            }
+
+            var lastRow = XlsxSheet.RowOf(keys[count - 1]);
+            if (heights.Length > 0)
+            {
+                lastRow = Math.Max(lastRow, heights[heights.Length - 1]);
+            }
+
+            w.WriteAttributeString("ref", "A1:" + CellName(lastRow, lastColumn));
+        }
+
         w.WriteEndElement();
 
         // sheetViews: gridlines, selected tab, frozen panes.
@@ -390,21 +439,30 @@ public sealed class XlsxWorkbook
         }
 
         // sheetData
+        // Rows come from merging the sorted cell keys with the sorted heights. Addresses and numbers are formatted into
+        // one scratch buffer: a sheet holds up to millions of cells, and a string for each would dominate the save.
         w.WriteStartElement("sheetData", MainNs);
+        var buffer = new char[64];
         var index = 0;
-        foreach (var row in rows)
+        var nextHeight = 0;
+        while (index < count || nextHeight < heights.Length)
         {
+            var cellRow = index < count ? XlsxSheet.RowOf(keys[index]) : int.MaxValue;
+            var heightRow = nextHeight < heights.Length ? heights[nextHeight] : int.MaxValue;
+            var row = Math.Min(cellRow, heightRow);
+
             w.WriteStartElement("row", MainNs);
-            w.WriteAttributeString("r", Int(row));
-            if (sheet.Heights.TryGetValue(row, out var height))
+            WriteNumberAttribute(w, "r", row, buffer);
+            if (heightRow == row)
             {
-                w.WriteAttributeString("ht", Num(height));
+                w.WriteAttributeString("ht", Num(sheet.Heights[row]));
                 w.WriteAttributeString("customHeight", "1");
+                nextHeight++;
             }
 
-            while (index < keys.Count && XlsxSheet.RowOf(keys[index]) == row)
+            while (index < count && XlsxSheet.RowOf(keys[index]) == row)
             {
-                WriteCell(w, keys[index], cells[keys[index]], styles, strings);
+                WriteCell(w, keys[index], cells[index], styles, strings, buffer);
                 index++;
             }
 
@@ -538,7 +596,7 @@ public sealed class XlsxWorkbook
         w.WriteEndElement();
     }
 
-    private static void WriteCell(XmlWriter w, long key, XlsxSheet.Cell cell, StyleTable styles, StringTable strings)
+    private static void WriteCell(XmlWriter w, long key, XlsxSheet.Cell cell, StyleTable styles, StringTable strings, char[] buffer)
     {
         var style = styles.Index(cell.Style);
         if (cell.Value == null && style == 0)
@@ -547,10 +605,12 @@ public sealed class XlsxWorkbook
         }
 
         w.WriteStartElement("c", MainNs);
-        w.WriteAttributeString("r", CellName(XlsxSheet.RowOf(key), XlsxSheet.ColumnOf(key)));
+        w.WriteStartAttribute("r");
+        w.WriteChars(buffer, 0, FormatCellName(buffer, XlsxSheet.RowOf(key), XlsxSheet.ColumnOf(key)));
+        w.WriteEndAttribute();
         if (style != 0)
         {
-            w.WriteAttributeString("s", Int(style));
+            WriteNumberAttribute(w, "s", style, buffer);
         }
 
         if (cell.Formula != null && cell.Value is string cached)
@@ -562,14 +622,114 @@ public sealed class XlsxWorkbook
         else if (cell.Value is string text)
         {
             w.WriteAttributeString("t", "s");
-            w.WriteElementString("v", MainNs, Int(strings.Index(text)));
+            w.WriteStartElement("v", MainNs);
+            w.WriteChars(buffer, 0, FormatInt(buffer, 0, strings.Index(text)));
+            w.WriteEndElement();
         }
         else if (cell.Value is double number)
         {
-            w.WriteElementString("v", MainNs, number.ToString("R", CultureInfo.InvariantCulture));
+            w.WriteStartElement("v", MainNs);
+            w.WriteChars(buffer, 0, FormatDouble(buffer, number));
+            w.WriteEndElement();
         }
 
         w.WriteEndElement();
+    }
+
+    private static void WriteNumberAttribute(XmlWriter w, string name, int value, char[] buffer)
+    {
+        w.WriteStartAttribute(name);
+        w.WriteChars(buffer, 0, FormatInt(buffer, 0, value));
+        w.WriteEndAttribute();
+    }
+
+    /// <summary>
+    /// Writes a cell address (B3) into the buffer; returns its length.
+    /// </summary>
+    private static int FormatCellName(char[] buffer, int row, int column)
+    {
+        // At most three letters (XFD); built backwards, then moved to the front.
+        var start = 3;
+        while (column > 0)
+        {
+            buffer[--start] = (char)('A' + ((column - 1) % 26));
+            column = (column - 1) / 26;
+        }
+
+        var letters = 3 - start;
+        for (var i = 0; i < letters; i++)
+        {
+            buffer[i] = buffer[start + i];
+        }
+
+        return FormatInt(buffer, letters, row);
+    }
+
+    /// <summary>
+    /// Writes a number into the buffer as <c>ToString("R")</c> would; returns its length.
+    /// </summary>
+    /// <remarks>
+    /// Whole numbers below 10^15 (counters, years, IDs) are written digit by digit on every runtime: "R" gives them
+    /// without exponent or point, so the text is the same. Other numbers go to the runtime's own round-trip format.
+    /// </remarks>
+    private static int FormatDouble(char[] buffer, double number)
+    {
+        // Negative zero is left to the runtime: .NET writes "-0", .NET Framework "0".
+        if (number == Math.Floor(number) && Math.Abs(number) < 1e15 && (number != 0 || BitConverter.DoubleToInt64Bits(number) == 0))
+        {
+            var whole = (long)number;
+            var position = 0;
+            if (whole < 0)
+            {
+                buffer[position++] = '-';
+                whole = -whole;
+            }
+
+            var digits = 1;
+            for (var rest = whole; rest >= 10; rest /= 10)
+            {
+                digits++;
+            }
+
+            var end = position + digits;
+            for (var i = end - 1; i >= position; i--)
+            {
+                buffer[i] = (char)('0' + (int)(whole % 10));
+                whole /= 10;
+            }
+
+            return end;
+        }
+
+#if NET
+        number.TryFormat(buffer, out var length, "R", CultureInfo.InvariantCulture);
+        return length;
+#else
+        var text = number.ToString("R", CultureInfo.InvariantCulture);
+        text.CopyTo(0, buffer, 0, text.Length);
+        return text.Length;
+#endif
+    }
+
+    /// <summary>
+    /// Writes a non-negative whole number into the buffer from <paramref name="position"/>; returns the end position.
+    /// </summary>
+    private static int FormatInt(char[] buffer, int position, int value)
+    {
+        var digits = 1;
+        for (var rest = value; rest >= 10; rest /= 10)
+        {
+            digits++;
+        }
+
+        var end = position + digits;
+        for (var i = end - 1; i >= position; i--)
+        {
+            buffer[i] = (char)('0' + (value % 10));
+            value /= 10;
+        }
+
+        return end;
     }
 
     private void WriteWorkbook(XmlWriter w)
@@ -872,6 +1032,13 @@ public sealed class XlsxWorkbook
         private readonly List<string> _borders = new List<string>();
         private readonly List<string> _numFmts = new List<string>();
 
+        /// <summary>
+        /// The style asked for last and its record; starts as the default style, record 0.
+        /// </summary>
+        private XlsxStyle _last;
+
+        private int _lastIndex;
+
         public StyleTable(XlsxWorkbook book)
         {
             _book = book;
@@ -887,8 +1054,16 @@ public sealed class XlsxWorkbook
 
         public int Index(XlsxStyle style)
         {
+            // Neighbouring cells usually share a style; comparing with the last one is cheaper than hashing every string.
+            if (style.Equals(_last))
+            {
+                return _lastIndex;
+            }
+
+            _last = style;
             if (_xfIndex.TryGetValue(style, out var i))
             {
+                _lastIndex = i;
                 return i;
             }
 
@@ -899,6 +1074,7 @@ public sealed class XlsxWorkbook
             i = _xfs.Count;
             _xfs.Add((font, fill, border, numFmt, style));
             _xfIndex[style] = i;
+            _lastIndex = i;
             return i;
         }
 

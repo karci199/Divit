@@ -145,7 +145,7 @@ public sealed class XlsxSheet
 
     internal (int Row1, int Col1, int Row2, int Col2)? AutoFilterRange { get; private set; }
 
-    internal IEnumerable<KeyValuePair<long, Cell>> Cells => _cells;
+    internal IReadOnlyDictionary<long, Cell> Cells => _cells;
 
     internal IReadOnlyDictionary<int, double> Widths => _widths;
 
