@@ -9,7 +9,7 @@ it needs neither Office nor any NuGet package at run time.
 
 | Format | State |
 |---|---|
-| Excel (`.xlsx`) | Writing: text, numbers, dates, booleans, styles (strikethrough, double underline, super/subscript, indent, rotation, shrink to fit), merges, borders, column widths, hidden and grouped rows and columns, frozen panes, auto filter, colour scales, comments, images, links (sheets, files, web, e-mail), defined names, hidden sheets, tab order and active tab, sheet protection, print settings (paper, margins, centring, gridlines), scatter and polar charts |
+| Excel (`.xlsx`) | Writing: text, numbers, dates, booleans, styles (strikethrough, double underline, super/subscript, indent, rotation, shrink to fit), merges, borders, column widths, hidden and grouped rows and columns, frozen panes, auto filter, formulas, data validation, conditional formatting (rules, colour scales, data bars, icon sets), comments, images, links (sheets, files, web, e-mail), defined names, hidden sheets, tab order and active tab, sheet protection, print settings (paper, margins, centring, gridlines), scatter and polar charts |
 | Word (`.docx`) | Planned |
 
 Divit writes documents; it does not read or edit existing ones. Build the document again from your own data instead.
@@ -57,8 +57,8 @@ a test-only dependency. Sample files land in `artifacts/gallery` for a look in E
 
 ## Roadmap
 
-1. Excel: formulas, conditional formatting rules, tables (ListObject), more chart kinds (column, bar, line, area, pie),
-   data validation, rich text, sparklines, streaming for very large sheets
+1. Excel: tables (ListObject), more chart kinds (column, bar, line, area, pie), theme colours and cell styles,
+   workbook protection, rich text, sparklines, streaming for very large sheets
 2. Shared package layer (zip, content types, relationships, document properties) for every format
 3. Word (`.docx`): paragraphs, styles, tables, images, headers and footers, page setup
 4. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV, PDF

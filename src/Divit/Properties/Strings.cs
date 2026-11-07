@@ -29,6 +29,12 @@ internal static class Strings
     internal const string SheetNotInWorkbook = nameof(SheetNotInWorkbook);
     internal const string DefinedNameInvalid = nameof(DefinedNameInvalid);
     internal const string DefinedNameDuplicate = nameof(DefinedNameDuplicate);
+    internal const string RangeReversed = nameof(RangeReversed);
+    internal const string SecondValueMissing = nameof(SecondValueMissing);
+    internal const string ListItemComma = nameof(ListItemComma);
+    internal const string ListTooLong = nameof(ListTooLong);
+    internal const string ValidationTextTooLong = nameof(ValidationTextTooLong);
+    internal const string FormulaLength = nameof(FormulaLength);
 }
 
 /// <summary>

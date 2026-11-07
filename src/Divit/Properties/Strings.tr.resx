@@ -63,4 +63,22 @@
   <data name="DefinedNameDuplicate" xml:space="preserve">
     <value>Bu adla bir ad zaten var: &quot;{0}&quot;.</value>
   </data>
+  <data name="RangeReversed" xml:space="preserve">
+    <value>Aralık ters: sol üst hücre sağ alttakinden sonra geliyor.</value>
+  </data>
+  <data name="SecondValueMissing" xml:space="preserve">
+    <value>Arasında ya da arasında değil karşılaştırması ikinci bir değer ister.</value>
+  </data>
+  <data name="ListItemComma" xml:space="preserve">
+    <value>Liste değeri virgül içeremez: &quot;{0}&quot;. Uzun listeleri hücrelere yazıp ListFrom kullanın.</value>
+  </data>
+  <data name="ListTooLong" xml:space="preserve">
+    <value>Sabit liste en çok 255 karakter tutar; değerleri hücrelere yazıp ListFrom kullanın.</value>
+  </data>
+  <data name="ValidationTextTooLong" xml:space="preserve">
+    <value>Doğrulama metni en çok {0} karakter olabilir: &quot;{1}&quot;.</value>
+  </data>
+  <data name="FormulaLength" xml:space="preserve">
+    <value>Formül 1–8192 karakter olmalı.</value>
+  </data>
 </root>

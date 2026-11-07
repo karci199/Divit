@@ -63,4 +63,22 @@
   <data name="DefinedNameDuplicate" xml:space="preserve">
     <value>A name like this already exists: &quot;{0}&quot;.</value>
   </data>
+  <data name="RangeReversed" xml:space="preserve">
+    <value>Range is reversed: the top-left cell comes after the bottom-right one.</value>
+  </data>
+  <data name="SecondValueMissing" xml:space="preserve">
+    <value>A between or not-between comparison needs a second value.</value>
+  </data>
+  <data name="ListItemComma" xml:space="preserve">
+    <value>A list value cannot contain a comma: &quot;{0}&quot;. Put longer lists in cells and use ListFrom.</value>
+  </data>
+  <data name="ListTooLong" xml:space="preserve">
+    <value>A fixed list holds at most 255 characters; put the values in cells and use ListFrom.</value>
+  </data>
+  <data name="ValidationTextTooLong" xml:space="preserve">
+    <value>A validation text holds at most {0} characters: &quot;{1}&quot;.</value>
+  </data>
+  <data name="FormulaLength" xml:space="preserve">
+    <value>A formula must have 1–8192 characters.</value>
+  </data>
 </root>

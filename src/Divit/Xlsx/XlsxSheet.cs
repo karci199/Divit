@@ -36,7 +36,9 @@ public sealed class XlsxSheet
     private readonly SortedDictionary<long, XlsxComment> _comments = new SortedDictionary<long, XlsxComment>();
     private readonly List<XlsxChart> _charts = new List<XlsxChart>();
     private readonly List<XlsxImage> _images = new List<XlsxImage>();
-    private readonly List<XlsxColorScale> _colorScales = new List<XlsxColorScale>();
+    private readonly List<XlsxConditional> _conditionals = new List<XlsxConditional>();
+    private readonly List<(int Row1, int Col1, int Row2, int Col2, XlsxValidation Validation)> _validations =
+        new List<(int, int, int, int, XlsxValidation)>();
 
     #endregion
 
@@ -141,7 +143,13 @@ public sealed class XlsxSheet
 
     internal IReadOnlyList<XlsxImage> Images => _images;
 
-    internal IReadOnlyList<XlsxColorScale> ColorScales => _colorScales;
+    /// <summary>
+    /// Conditional formats (colour scales, highlights, data bars, icon sets) in the order they were added, which is
+    /// also their priority.
+    /// </summary>
+    internal IReadOnlyList<XlsxConditional> Conditionals => _conditionals;
+
+    internal IReadOnlyList<(int Row1, int Col1, int Row2, int Col2, XlsxValidation Validation)> Validations => _validations;
 
     /// <summary>
     /// Whether the tab is shown; at least one sheet of a workbook must stay visible.
@@ -253,9 +261,135 @@ public sealed class XlsxSheet
     /// <param name="highColor">Colour of the highest value.</param>
     public void ColorScale(int row1, int column1, int row2, int column2, string lowColor, string? midColor, string highColor)
     {
-        Check(row1, column1);
-        Check(row2, column2);
-        _colorScales.Add(new XlsxColorScale(row1, column1, row2, column2, lowColor, midColor, highColor));
+        CheckRange(row1, column1, row2, column2);
+        _conditionals.Add(new XlsxColorScale(row1, column1, row2, column2, lowColor, midColor, highColor));
+    }
+
+    /// <summary>
+    /// Gives the cells of a range for which a rule holds a different look (Excel conditional formatting), for example
+    /// a red fill for values below a limit. Rules apply in the order they were added; a later rule on the same cell
+    /// adds to the look of an earlier one.
+    /// </summary>
+    /// <param name="row1">First row (1-based).</param>
+    /// <param name="column1">First column (1-based).</param>
+    /// <param name="row2">Last row.</param>
+    /// <param name="column2">Last column.</param>
+    /// <param name="rule">The condition, from the factories of <see cref="XlsxRule"/>.</param>
+    /// <param name="look">The look of matching cells. Font colour, bold, italic, underline, strikethrough, fill,
+    /// borders and number format apply; font name, size and alignment do not.</param>
+    public void Highlight(int row1, int column1, int row2, int column2, XlsxRule rule, XlsxStyle look)
+    {
+        CheckRange(row1, column1, row2, column2);
+        _conditionals.Add(new XlsxHighlight(row1, column1, row2, column2, rule, look));
+    }
+
+    /// <summary>
+    /// Draws a bar in every cell of a range, as long as the value is large compared with the others (Excel conditional
+    /// formatting). The values stay readable on top of the bars.
+    /// </summary>
+    /// <param name="row1">First row (1-based).</param>
+    /// <param name="column1">First column (1-based).</param>
+    /// <param name="row2">Last row.</param>
+    /// <param name="column2">Last column.</param>
+    /// <param name="color">Bar colour as <c>#RRGGBB</c>.</param>
+    public void DataBar(int row1, int column1, int row2, int column2, string color)
+    {
+        CheckRange(row1, column1, row2, column2);
+        XlsxWorkbook.Argb(color);
+        _conditionals.Add(new XlsxDataBar(row1, column1, row2, column2, color));
+    }
+
+    /// <summary>
+    /// Puts an icon in every cell of a range by where its value falls between the lowest and highest value (Excel
+    /// conditional formatting): with three icons, the lowest third, the middle third and the highest third.
+    /// </summary>
+    /// <param name="row1">First row (1-based).</param>
+    /// <param name="column1">First column (1-based).</param>
+    /// <param name="row2">Last row.</param>
+    /// <param name="column2">Last column.</param>
+    /// <param name="icons">The icon set.</param>
+    /// <param name="reverse">Gives the low values the icons of the high ones (for example red for a high error).</param>
+    /// <param name="showValue">Whether the value is shown next to the icon.</param>
+    public void IconSet(int row1, int column1, int row2, int column2, XlsxIconSet icons, bool reverse = false, bool showValue = true)
+    {
+        CheckRange(row1, column1, row2, column2);
+        _conditionals.Add(new XlsxIcons(row1, column1, row2, column2, icons, reverse, showValue));
+    }
+
+    /// <summary>
+    /// Limits what may be typed into a range: a drop-down list, numbers or dates within limits, a text length or a
+    /// formula. A later validation on the same cells wins in Excel; do not overlap them.
+    /// </summary>
+    /// <param name="row1">First row (1-based).</param>
+    /// <param name="column1">First column (1-based).</param>
+    /// <param name="row2">Last row.</param>
+    /// <param name="column2">Last column.</param>
+    /// <param name="validation">What is allowed, from the factories of <see cref="XlsxValidation"/>.</param>
+    public void Validate(int row1, int column1, int row2, int column2, XlsxValidation validation)
+    {
+        CheckRange(row1, column1, row2, column2);
+        _validations.Add((row1, column1, row2, column2, validation));
+    }
+
+    /// <summary>
+    /// Writes a formula; Excel computes it when the file opens (for example <c>SUM(B2:B10)</c> or <c>Sales*Rate</c>).
+    /// Formulas use English function names and commas, with or without a leading <c>=</c>.
+    /// </summary>
+    /// <remarks>
+    /// Without a cached value, programs that do not compute on opening (file previews, some viewers) show an empty
+    /// cell; give the expected result with the other overloads when it is known.
+    /// </remarks>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="formula">The formula, at most 8192 characters.</param>
+    /// <exception cref="ArgumentException">The formula is empty or too long.</exception>
+    public void SetFormula(int row, int column, string formula) => SetFormula(row, column, formula, (object?)null);
+
+    /// <summary>
+    /// Writes a formula with the number it results in, shown until the formula is computed again.
+    /// </summary>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="formula">The formula.</param>
+    /// <param name="result">The result.</param>
+    public void SetFormula(int row, int column, string formula, double result) =>
+        SetFormula(row, column, formula, double.IsNaN(result) || double.IsInfinity(result) ? null : (object)result);
+
+    /// <summary>
+    /// Writes a formula with the text it results in, shown until the formula is computed again.
+    /// </summary>
+    /// <param name="row">Row (1-based).</param>
+    /// <param name="column">Column (1-based).</param>
+    /// <param name="formula">The formula.</param>
+    /// <param name="result">The result.</param>
+    public void SetFormula(int row, int column, string formula, string result) => SetFormula(row, column, formula, (object)result);
+
+    /// <summary>
+    /// A formula without its leading <c>=</c> and surrounding spaces.
+    /// </summary>
+    /// <exception cref="ArgumentException">The formula is empty or longer than Excel's 8192 characters.</exception>
+    internal static string TrimFormula(string formula)
+    {
+        var text = formula.Trim();
+        if (text.StartsWith("=", StringComparison.Ordinal))
+        {
+            text = text.Substring(1).TrimStart();
+        }
+
+        if (text.Length == 0 || text.Length > 8192)
+        {
+            throw new ArgumentException(Messages.Get(Strings.FormulaLength), nameof(formula));
+        }
+
+        return text;
+    }
+
+    private void SetFormula(int row, int column, string formula, object? result)
+    {
+        var text = TrimFormula(formula);
+        var cell = At(row, column);
+        cell.Formula = text;
+        cell.Value = result;
     }
 
     #endregion
@@ -671,6 +805,16 @@ public sealed class XlsxSheet
         }
     }
 
+    private static void CheckRange(int row1, int column1, int row2, int column2)
+    {
+        Check(row1, column1);
+        Check(row2, column2);
+        if (row2 < row1 || column2 < column1)
+        {
+            throw new ArgumentException(Messages.Get(Strings.RangeReversed));
+        }
+    }
+
     private static void Check(int row, int column)
     {
         if (row < 1 || row > MaxRow || column < 1 || column > MaxColumn)
@@ -750,19 +894,16 @@ public sealed class XlsxSheet
     }
 
     /// <summary>
-    /// A colour scale rule.
+    /// A conditional format on a range.
     /// </summary>
-    internal sealed class XlsxColorScale
+    internal abstract class XlsxConditional
     {
-        public XlsxColorScale(int row1, int column1, int row2, int column2, string low, string? mid, string high)
+        protected XlsxConditional(int row1, int column1, int row2, int column2)
         {
             Row1 = row1;
             Column1 = column1;
             Row2 = row2;
             Column2 = column2;
-            Low = low;
-            Mid = mid;
-            High = high;
         }
 
         public int Row1 { get; }
@@ -772,6 +913,71 @@ public sealed class XlsxSheet
         public int Row2 { get; }
 
         public int Column2 { get; }
+    }
+
+    /// <summary>
+    /// A rule with a look: the cells for which the rule holds take the look.
+    /// </summary>
+    internal sealed class XlsxHighlight : XlsxConditional
+    {
+        public XlsxHighlight(int row1, int column1, int row2, int column2, XlsxRule rule, XlsxStyle look)
+            : base(row1, column1, row2, column2)
+        {
+            Rule = rule;
+            Look = look;
+        }
+
+        public XlsxRule Rule { get; }
+
+        public XlsxStyle Look { get; }
+    }
+
+    /// <summary>
+    /// Bars in the cells, as long as the value.
+    /// </summary>
+    internal sealed class XlsxDataBar : XlsxConditional
+    {
+        public XlsxDataBar(int row1, int column1, int row2, int column2, string color)
+            : base(row1, column1, row2, column2)
+        {
+            Color = color;
+        }
+
+        public string Color { get; }
+    }
+
+    /// <summary>
+    /// Icons in the cells by value.
+    /// </summary>
+    internal sealed class XlsxIcons : XlsxConditional
+    {
+        public XlsxIcons(int row1, int column1, int row2, int column2, XlsxIconSet set, bool reverse, bool showValue)
+            : base(row1, column1, row2, column2)
+        {
+            Set = set;
+            Reverse = reverse;
+            ShowValue = showValue;
+        }
+
+        public XlsxIconSet Set { get; }
+
+        public bool Reverse { get; }
+
+        public bool ShowValue { get; }
+    }
+
+    /// <summary>
+    /// A colour scale rule.
+    /// </summary>
+    internal sealed class XlsxColorScale : XlsxConditional
+    {
+        public XlsxColorScale(int row1, int column1, int row2, int column2, string low, string? mid, string high)
+            : base(row1, column1, row2, column2)
+        {
+            Low = low;
+            Mid = mid;
+            High = high;
+        }
 
         public string Low { get; }
 
@@ -781,7 +987,7 @@ public sealed class XlsxSheet
     }
 
     /// <summary>
-    /// A cell: value (text, number or empty) and style.
+    /// A cell: value (text, number, boolean or empty), formula and style.
     /// </summary>
     internal sealed class Cell
     {
