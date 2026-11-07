@@ -9,7 +9,7 @@ it needs neither Office nor any NuGet package at run time.
 
 | Format | State |
 |---|---|
-| Excel (`.xlsx`) | Writing: text, numbers, dates, booleans, styles (strikethrough, double underline, super/subscript, indent, rotation, shrink to fit), merges, borders, column widths, hidden and grouped rows and columns, frozen panes, auto filter, formulas, data validation, conditional formatting (rules, colour scales, data bars, icon sets), rich text, tables with totals rows, theme, built-in cell styles, comments (rich text, box size), images (PNG, JPEG, GIF; at a cell or filling cells), links (sheets, files, web, e-mail), defined names, hidden sheets, tab order and active tab, sheet and workbook protection (SHA-512, editable cells), print settings (paper, margins, centring, gridlines, page breaks, first and even page headers), charts (scatter, polar, column, bar, line, area, pie, doughnut; combined, secondary axis, stacked and 100 %, logarithmic and reversed axes, trendlines, error bars, data labels), streamed sheets for millions of rows |
+| Excel (`.xlsx`) | Writing: text, numbers, dates, booleans, styles (strikethrough, double underline, super/subscript, indent, rotation, shrink to fit), merges, borders, column widths, hidden and grouped rows and columns, frozen panes, auto filter, formulas, data validation, conditional formatting (rules, colour scales, data bars, icon sets), rich text, tables with totals rows, pivot tables (row, column, filter and value fields), theme, built-in cell styles, comments (rich text, box size), images (PNG, JPEG, GIF; at a cell or filling cells), links (sheets, files, web, e-mail), defined names, hidden sheets, tab order and active tab, sheet and workbook protection (SHA-512, editable cells), print settings (paper, margins, centring, gridlines, page breaks, first and even page headers), charts (scatter, polar, column, bar, line, area, pie, doughnut; combined, secondary axis, stacked and 100 %, logarithmic and reversed axes, trendlines, error bars, data labels), streamed sheets for millions of rows |
 | Word (`.docx`) | Planned |
 
 Divit writes documents; it does not read or edit existing ones. Build the document again from your own data instead.
@@ -73,8 +73,23 @@ a test-only dependency. Sample files land in `artifacts/gallery` for a look in E
 
 ## Roadmap
 
-1. Excel, if needed: sparklines, pivot tables, slicers, dynamic arrays, chart sheets
-   pivot tables, images in more formats
-2. Word (`.docx`): paragraphs, styles, tables, images, headers and footers, page setup, on the shared package layer
-3. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV, PDF
-4. Macros last, if ever: a prebuilt `vbaProject.bin` or COM
+1. Word (`.docx`): paragraphs, styles, tables, images, headers and footers, page setup, on the shared package layer
+2. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV, PDF
+3. Macros last, if ever: a prebuilt `vbaProject.bin` or COM
+
+### Excel backlog
+
+Left out until a use needs them:
+
+- **Sparklines**: a small chart inside a cell. An Excel 2010 extension that some readers ignore.
+- **More pivot table layouts**: several row or column fields, several value fields, grouping dates.
+- **Slicers and timelines**: filter buttons for tables and pivot tables.
+- **Array formulas and dynamic arrays** (`FILTER`, `SORT`, spilling results).
+- **Chart sheets**: a sheet that is one chart.
+- **Cached values in charts on streamed sheets**: today Excel reads the cells when it opens the file.
+- **Smaller files on .NET 10**: its fastest deflate level packs about a third larger than .NET Framework's; a
+  stronger level costs save time.
+- **Same number text on both runtimes**: .NET Framework's round-trip format writes some fractions with more digits
+  than .NET does (same value).
+- **Auto-fit column widths**: measuring text needs font metrics.
+- **Computing formulas**: Excel computes them on opening; only needed for readers that never do.

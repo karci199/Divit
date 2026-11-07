@@ -39,6 +39,7 @@ public sealed class XlsxSheet
     private readonly List<XlsxImage> _images = new List<XlsxImage>();
     private readonly List<XlsxConditional> _conditionals = new List<XlsxConditional>();
     private readonly List<XlsxTable> _tables = new List<XlsxTable>();
+    private readonly List<XlsxPivotTable> _pivots = new List<XlsxPivotTable>();
     private readonly SortedSet<int> _rowBreaks = new SortedSet<int>();
     private readonly SortedSet<int> _columnBreaks = new SortedSet<int>();
     private readonly List<(int Row1, int Col1, int Row2, int Col2, XlsxValidation Validation)> _validations =
@@ -983,6 +984,46 @@ public sealed class XlsxSheet
     /// The tables of the sheet in the order they were added.
     /// </summary>
     public IReadOnlyList<XlsxTable> Tables => _tables;
+
+    /// <summary>
+    /// Adds a pivot table at a cell, summarising a data range of this or another sheet: set its row, column, filter
+    /// and value fields on the returned table. The summary fills the cells from <paramref name="row"/>,
+    /// <paramref name="column"/> on (two rows lower with a filter); keep them free.
+    /// </summary>
+    /// <param name="row">Row of the top-left corner.</param>
+    /// <param name="column">Column of the top-left corner.</param>
+    /// <param name="source">Sheet of the data; it keeps its cells (not streamed).</param>
+    /// <param name="row1">Header row of the data, naming the fields.</param>
+    /// <param name="column1">First column of the data.</param>
+    /// <param name="row2">Last row of the data.</param>
+    /// <param name="column2">Last column of the data.</param>
+    /// <param name="name">Name of the pivot table, unique on this sheet.</param>
+    /// <returns>The pivot table.</returns>
+    /// <exception cref="ArgumentException">The data range has no record, or the name is empty.</exception>
+    public XlsxPivotTable AddPivotTable(int row, int column, XlsxSheet source, int row1, int column1, int row2, int column2, string name = "PivotTable1")
+    {
+        NotStreamed();
+        Check(row, column);
+        CheckRange(row1, column1, row2, column2);
+        if (row2 <= row1)
+        {
+            throw new ArgumentException(Messages.Get(Strings.TableNeedsData));
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException(Messages.Format(Strings.DefinedNameInvalid, name), nameof(name));
+        }
+
+        var pivot = new XlsxPivotTable(this, row, column, source, row1, column1, row2, column2, name);
+        _pivots.Add(pivot);
+        return pivot;
+    }
+
+    /// <summary>
+    /// The pivot tables of the sheet in the order they were added.
+    /// </summary>
+    public IReadOnlyList<XlsxPivotTable> PivotTables => _pivots;
 
     /// <summary>
     /// The text of a cell as Excel shows a header: text as it is, numbers in invariant form; <c>null</c> when empty.

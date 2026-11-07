@@ -114,4 +114,19 @@
   <data name="ImageSizeUnknown" xml:space="preserve">
     <value>The size of the image cannot be read from the file; give width and height.</value>
   </data>
+  <data name="PivotFieldMissing" xml:space="preserve">
+    <value>Pivot table &quot;{0}&quot; needs a row field and a value field.</value>
+  </data>
+  <data name="PivotFieldUnknown" xml:space="preserve">
+    <value>No field &quot;{0}&quot; in the data of pivot table &quot;{1}&quot;; fields are named by the header row.</value>
+  </data>
+  <data name="PivotFieldTwice" xml:space="preserve">
+    <value>Field &quot;{0}&quot; has two roles in pivot table &quot;{1}&quot;.</value>
+  </data>
+  <data name="PivotValueNotNumeric" xml:space="preserve">
+    <value>Field &quot;{0}&quot; of pivot table &quot;{1}&quot; holds text; only Count works on it.</value>
+  </data>
+  <data name="PivotNameDuplicate" xml:space="preserve">
+    <value>A pivot table with this name is already on the sheet: &quot;{0}&quot;.</value>
+  </data>
 </root>

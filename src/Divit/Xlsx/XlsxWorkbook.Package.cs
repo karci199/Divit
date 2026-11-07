@@ -41,6 +41,11 @@ public sealed partial class XlsxWorkbook
                 plan.NoteShapesId = plan.Relationships.Add(RelationshipTypes.VmlDrawing, "../drawings/vmlDrawing" + plan.Comments + ".vml");
             }
 
+            foreach (var pivot in sheet.PivotTables)
+            {
+                plan.PivotIds.Add(plan.Relationships.Add(PivotTableRelationship, "../pivotTables/pivotTable" + pivot.Id + ".xml"));
+            }
+
             foreach (var table in sheet.Tables)
             {
                 plan.TableIds.Add(plan.Relationships.Add(TableRelationship, "../tables/table" + table.Id + ".xml"));
@@ -153,6 +158,9 @@ public sealed partial class XlsxWorkbook
             w.WriteEndElement();
         }
 
+        // Pivot caches follow the calculation settings in the order of the standard.
+        WritePivotCaches(w);
+
         w.WriteEndElement();
     }
 
@@ -170,6 +178,10 @@ public sealed partial class XlsxWorkbook
         list.Add(RelationshipTypes.Styles, "styles.xml");
         list.Add(RelationshipTypes.SharedStrings, "sharedStrings.xml");
         list.Add(RelationshipTypes.Theme, "theme/theme1.xml");
+        foreach (var pivot in _pivots)
+        {
+            list.Add(PivotCacheRelationship, "pivotCache/pivotCacheDefinition" + pivot.Id + ".xml");
+        }
         return list;
     }
 
@@ -208,6 +220,13 @@ public sealed partial class XlsxWorkbook
         for (var i = 1; i <= _charts; i++)
         {
             package.Override("/xl/charts/chart" + i + ".xml", ContentTypes.Chart);
+        }
+
+        for (var i = 1; i <= _pivots.Count; i++)
+        {
+            package.Override("/xl/pivotCache/pivotCacheDefinition" + i + ".xml", PivotCacheContentType);
+            package.Override("/xl/pivotCache/pivotCacheRecords" + i + ".xml", PivotRecordsContentType);
+            package.Override("/xl/pivotTables/pivotTable" + i + ".xml", PivotTableContentType);
         }
 
         for (var i = 1; i <= _tables; i++)
@@ -253,5 +272,10 @@ public sealed partial class XlsxWorkbook
         /// Relationship ids of the tables, in the order of <see cref="XlsxSheet.Tables"/>.
         /// </summary>
         public readonly List<string> TableIds = new List<string>();
+
+        /// <summary>
+        /// Relationship ids of the pivot tables, in the order of <see cref="XlsxSheet.PivotTables"/>.
+        /// </summary>
+        public readonly List<string> PivotIds = new List<string>();
     }
 }

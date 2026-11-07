@@ -114,4 +114,19 @@
   <data name="ImageSizeUnknown" xml:space="preserve">
     <value>Görselin boyutu dosyadan okunamıyor; genişlik ve yüksekliği verin.</value>
   </data>
+  <data name="PivotFieldMissing" xml:space="preserve">
+    <value>&quot;{0}&quot; pivot tablosu bir satır alanı ve bir değer alanı ister.</value>
+  </data>
+  <data name="PivotFieldUnknown" xml:space="preserve">
+    <value>&quot;{1}&quot; pivot tablosunun verisinde &quot;{0}&quot; alanı yok; alanlar başlık satırıyla adlanır.</value>
+  </data>
+  <data name="PivotFieldTwice" xml:space="preserve">
+    <value>&quot;{0}&quot; alanının &quot;{1}&quot; pivot tablosunda iki görevi var.</value>
+  </data>
+  <data name="PivotValueNotNumeric" xml:space="preserve">
+    <value>&quot;{1}&quot; pivot tablosunun &quot;{0}&quot; alanı metin tutuyor; üzerinde yalnızca Count çalışır.</value>
+  </data>
+  <data name="PivotNameDuplicate" xml:space="preserve">
+    <value>Sayfada bu adla bir pivot tablo zaten var: &quot;{0}&quot;.</value>
+  </data>
 </root>

@@ -303,6 +303,7 @@ public sealed partial class XlsxWorkbook
         _active = _sheets.IndexOf(active);
         _formulas = false;
         PrepareTables();
+        PreparePivots();
         var plans = PlanSheets();
         var styles = new StyleTable(this);
         var strings = new StringTable(this);
@@ -312,6 +313,21 @@ public sealed partial class XlsxWorkbook
             for (var i = 0; i < _sheets.Count; i++)
             {
                 package.XmlPart("xl/worksheets/sheet" + (i + 1) + ".xml", w => WriteSheet(w, _sheets[i], i == _active, plans[i], styles, strings));
+            }
+
+            // Pivot tables and their caches; before the styles, whose number formats they may add to.
+            foreach (var pivot in _pivots)
+            {
+                var id = Int(pivot.Id);
+                package.XmlPart("xl/pivotTables/pivotTable" + id + ".xml", w => WritePivotTable(w, pivot, styles));
+                var tableLinks = new RelationshipList();
+                tableLinks.Add(PivotCacheRelationship, "../pivotCache/pivotCacheDefinition" + id + ".xml");
+                package.Relationships("xl/pivotTables/_rels/pivotTable" + id + ".xml.rels", tableLinks);
+                package.XmlPart("xl/pivotCache/pivotCacheDefinition" + id + ".xml", w => WritePivotCache(w, pivot));
+                var cacheLinks = new RelationshipList();
+                cacheLinks.Add(PivotRecordsRelationship, "pivotCacheRecords" + id + ".xml");
+                package.Relationships("xl/pivotCache/_rels/pivotCacheDefinition" + id + ".xml.rels", cacheLinks);
+                package.XmlPart("xl/pivotCache/pivotCacheRecords" + id + ".xml", w => WritePivotRecords(w, pivot));
             }
 
             // The sheets' relationships, then their notes: a comment list and the legacy VML shapes Excel draws them with.

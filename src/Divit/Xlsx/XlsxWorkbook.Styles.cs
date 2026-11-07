@@ -103,6 +103,11 @@ public sealed partial class XlsxWorkbook
         /// <summary>
         /// The record of a conditional look; its number format joins the workbook's number formats.
         /// </summary>
+        /// <summary>
+        /// The id of a number format, added to the workbook's formats when new.
+        /// </summary>
+        public int NumberFormatId(string format) => 164 + Add(_numFmts, format);
+
         public int Differential(XlsxStyle look)
         {
             var i = _dxfs.IndexOf(look);

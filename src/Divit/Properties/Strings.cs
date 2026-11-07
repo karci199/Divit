@@ -46,6 +46,11 @@ internal static class Strings
     internal const string RowAlreadyStarted = nameof(RowAlreadyStarted);
     internal const string CellValueType = nameof(CellValueType);
     internal const string ImageSizeUnknown = nameof(ImageSizeUnknown);
+    internal const string PivotFieldMissing = nameof(PivotFieldMissing);
+    internal const string PivotFieldUnknown = nameof(PivotFieldUnknown);
+    internal const string PivotFieldTwice = nameof(PivotFieldTwice);
+    internal const string PivotValueNotNumeric = nameof(PivotValueNotNumeric);
+    internal const string PivotNameDuplicate = nameof(PivotNameDuplicate);
 }
 
 /// <summary>

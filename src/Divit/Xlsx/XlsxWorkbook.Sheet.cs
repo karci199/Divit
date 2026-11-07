@@ -386,7 +386,7 @@ public sealed partial class XlsxWorkbook
             w.WriteEndElement();
         }
 
-        // Tables come last in the worksheet.
+        // Tables come last in the worksheet; pivot tables are listed in the sheet's relationships only.
         if (plan.TableIds.Count > 0)
         {
             w.WriteStartElement("tableParts", MainNs);
