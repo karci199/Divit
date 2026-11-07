@@ -13,6 +13,7 @@ using Xunit;
 /// <summary>
 /// Streamed sections: content written while the document is saved, the same as stored content, in little memory.
 /// </summary>
+[Collection(MemoryCollection.Name)]
 public class DocxStreamTests
 {
     private static string Save(DocxDocument doc, string name, bool keep = false)
@@ -273,4 +274,17 @@ public class DocxStreamTests
         doc.Save(Path.Combine(folder, "b.docx"));
         Assert.Equal(File.ReadAllBytes(Path.Combine(folder, "a.docx")), File.ReadAllBytes(Path.Combine(folder, "b.docx")));
     }
+}
+
+/// <summary>
+/// Tests that measure the memory of the whole process run alone: other tests allocating at the same time would
+/// blur the numbers.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class MemoryCollection
+{
+    /// <summary>
+    /// Name of the collection.
+    /// </summary>
+    public const string Name = "Memory";
 }

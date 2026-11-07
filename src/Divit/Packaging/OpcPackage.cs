@@ -63,31 +63,8 @@ internal sealed class OpcPackage
     /// <param name="path">Target file.</param>
     /// <param name="time">Time stamped on every entry; the clock time when empty.</param>
     /// <param name="write">Adds the parts.</param>
-    public static void Save(string path, DateTime? time, Action<OpcPackage> write)
-    {
-        var temp = path + ".tmp";
-        try
-        {
-            using (var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 65536))
-            {
-                Write(file, time, write);
-            }
-
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-
-            File.Move(temp, path);
-        }
-        finally
-        {
-            if (File.Exists(temp))
-            {
-                File.Delete(temp);
-            }
-        }
-    }
+    public static void Save(string path, DateTime? time, Action<OpcPackage> write) =>
+        AtomicFile.Save(path, stream => Write(stream, time, write));
 
     /// <summary>
     /// Writes a package into a stream, which stays open.

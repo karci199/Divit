@@ -147,4 +147,16 @@
   <data name="SourceNotInDocument" xml:space="preserve">
     <value>A citation points at a source of another document.</value>
   </data>
+  <data name="FontNotFound" xml:space="preserve">
+    <value>No font named {0} is installed; give the font file instead.</value>
+  </data>
+  <data name="FontInvalid" xml:space="preserve">
+    <value>The bytes are no TrueType or OpenType font.</value>
+  </data>
+  <data name="FontOutlinesUnsupported" xml:space="preserve">
+    <value>The font {0} has PostScript (CFF) outlines; only TrueType outlines can be embedded.</value>
+  </data>
+  <data name="PdfImageUnsupported" xml:space="preserve">
+    <value>This image cannot go into a PDF yet: use a PNG (not interlaced) or a JPEG.</value>
+  </data>
 </root>

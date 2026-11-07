@@ -57,6 +57,10 @@ internal static class Strings
     internal const string ReferenceTargetMissing = nameof(ReferenceTargetMissing);
     internal const string SourceTagInvalid = nameof(SourceTagInvalid);
     internal const string SourceNotInDocument = nameof(SourceNotInDocument);
+    internal const string FontNotFound = nameof(FontNotFound);
+    internal const string FontInvalid = nameof(FontInvalid);
+    internal const string FontOutlinesUnsupported = nameof(FontOutlinesUnsupported);
+    internal const string PdfImageUnsupported = nameof(PdfImageUnsupported);
 }
 
 /// <summary>

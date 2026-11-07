@@ -11,6 +11,7 @@ it needs neither Office nor any NuGet package at run time.
 |---|---|
 | Excel (`.xlsx`) | Writing: text, numbers, dates, booleans, styles (strikethrough, double underline, super/subscript, indent, rotation, shrink to fit), merges, borders, column widths, hidden and grouped rows and columns, frozen panes, auto filter, formulas, data validation, conditional formatting (rules, colour scales, data bars, icon sets), rich text, tables with totals rows, pivot tables (row, column, filter and value fields), theme, built-in cell styles, comments (rich text, box size), images (PNG, JPEG, GIF; at a cell or filling cells), links (sheets, files, web, e-mail), defined names, hidden sheets, tab order and active tab, sheet and workbook protection (SHA-512, editable cells), print settings (paper, margins, centring, gridlines, page breaks, first and even page headers), charts (scatter, polar, column, bar, line, area, pie, doughnut; combined, secondary axis, stacked and 100 %, logarithmic and reversed axes, trendlines, error bars, data labels), streamed sheets for millions of rows |
 | Word (`.docx`) | Writing: sections (page size, orientation, margins, vertical alignment, page numbering), paragraphs and fonts, numbered headings (1, 1.1, 1.1.1), a house style turned into Word styles, headers and footers (first page, even pages) with page fields, tables (house, grid and plain looks, repeated header rows, column widths and alignment, merged cells, also in headers and footers), images (PNG, JPEG, GIF), figure and table captions, table of contents and lists of figures and tables, bulleted and numbered lists (nine levels), links (web, e-mail, within the document), cross-references (text, heading number, page, caption label), watermarks, check boxes, footnotes, document protection (read only, forms, comments, tracked changes; SHA-512), change tracking and tracked insertions and deletions, equations (fractions, indices, roots, brackets, sums, integrals, functions; numbered), sources, citations and a bibliography in Word's source manager (IEEE, APA), streamed sections for very long documents |
+| PDF (`.pdf`) | Drawing: pages of any size, installed or given TrueType fonts (also from .ttc collections) embedded as subsets, any language the font covers, text measured and aligned, lines (solid, dashed, dotted), rectangles, polygons, ellipses, curves, PNG (with transparency) and JPEG images, file properties; layout of paragraphs and tables is next |
 
 Divit writes documents; it does not read or edit existing ones. Build the document again from your own data instead.
 
@@ -69,6 +70,28 @@ A full acceptance test procedure (cover with letterhead, headers and footers as 
 lists of figures and tables, numbered chapters, hardware and software lists, figures, record form) is built in
 `tests/Divit.Tests/DocxProcedureTests.cs` from these blocks only.
 
+## PDF example
+
+PDF files are drawn: positions in points from the top left, text in the document's fonts.
+
+```csharp
+using Divit.Pdf;
+
+var pdf = new PdfDocument { Title = "Test report" };
+var font = pdf.AddFont("Trebuchet MS");
+var bold = pdf.AddFont("Trebuchet MS", bold: true);
+var page = pdf.AddPage();
+page.FillRectangle(0, 0, page.Width, 90, "#1F4E79");
+page.DrawText("Acceptance Test Report", 40, 50, bold, 22, "#FFFFFF");
+page.DrawText("Operator: Ayşe Yılmaz", 40, 130, font, 10);
+page.DrawLine(40, 140, page.Width - 40, 140, "#9DC3E6");
+pdf.Save("report.pdf");
+```
+
+A one-page acceptance test report with a limits table and a VSWR chart is built in
+`tests/Divit.Tests/PdfReportTests.cs`. Fonts are found by family name in the font folders of Windows, Linux
+and macOS, or given as file bytes; only the glyphs used are embedded, so the report with two fonts is about 50 KB.
+
 ## Very large sheets and documents
 
 `AddStreamedSheet` writes the rows of a sheet while the file is saved, without keeping them: memory stays flat. Ten
@@ -119,9 +142,11 @@ a test-only dependency. Sample files land in `artifacts/gallery` for a look in E
 
 ## Roadmap
 
-1. Word (`.docx`): the backlog below, as uses need it
-2. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV, PDF
-3. Macros last, if ever: a prebuilt `vbaProject.bin` or COM
+1. PDF (`.pdf`): laying out paragraphs, headings, lists and tables over pages with headers and footers, then the
+   Word document model saved as PDF, charts, links and bookmarks
+2. Word (`.docx`): the backlog below, as uses need it
+3. Later: PowerPoint (`.pptx`), SVG charts, HTML, CSV
+4. Macros last, if ever: a prebuilt `vbaProject.bin` or COM
 
 ### Word backlog
 

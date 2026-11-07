@@ -147,4 +147,16 @@
   <data name="SourceNotInDocument" xml:space="preserve">
     <value>Bir kaynak gösterme başka bir belgenin kaynağını gösteriyor.</value>
   </data>
+  <data name="FontNotFound" xml:space="preserve">
+    <value>{0} adında yüklü bir yazı tipi yok; yazı tipi dosyasını verin.</value>
+  </data>
+  <data name="FontInvalid" xml:space="preserve">
+    <value>Bu baytlar bir TrueType veya OpenType yazı tipi değil.</value>
+  </data>
+  <data name="FontOutlinesUnsupported" xml:space="preserve">
+    <value>{0} yazı tipinin PostScript (CFF) çizimleri var; yalnızca TrueType çizimleri gömülebilir.</value>
+  </data>
+  <data name="PdfImageUnsupported" xml:space="preserve">
+    <value>Bu resim henüz PDF'e konamıyor: PNG (taramalı olmayan) veya JPEG kullanın.</value>
+  </data>
 </root>
