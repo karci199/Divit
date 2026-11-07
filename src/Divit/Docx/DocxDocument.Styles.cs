@@ -14,7 +14,7 @@ public sealed partial class DocxDocument
     /// The styles, built from the look: document defaults, Normal, headings, title, subtitle, caption, no spacing,
     /// and the table of contents styles. Built-in styles carry Word's own names, which Word shows translated.
     /// </summary>
-    private void WriteStyles(XmlWriter w)
+    private void WriteStyles(XmlWriter w, Parts parts)
     {
         var look = Look;
         w.WriteStartElement("w", "styles", Main);
@@ -163,11 +163,58 @@ public sealed partial class DocxDocument
         Spacing(w, null, 3, null);
         w.WriteEndElement();
         w.WriteEndElement();
+        WriteFeatureStyles(w, parts);
 
         TableStyle(w, "DivitTable", "Divit Table", true, true);
         TableStyle(w, "DivitGrid", "Divit Grid", true, false);
         TableStyle(w, "DivitPlain", "Divit Plain", false, false);
         w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// The styles only some documents need, written when used: list items, links, footnotes.
+    /// </summary>
+    private void WriteFeatureStyles(XmlWriter w, Parts parts)
+    {
+        if (parts.HasLists)
+        {
+            StyleStart(w, "paragraph", DocxStyle.ListParagraph, "List Paragraph", DocxStyle.Normal, null, 34, true, false);
+            w.WriteStartElement("pPr", Main);
+            w.WriteStartElement("ind", Main);
+            w.WriteAttributeString("w", "left", Main, "720");
+            w.WriteEndElement();
+            w.WriteElementString("contextualSpacing", Main, null);
+            w.WriteEndElement();
+            w.WriteEndElement();
+        }
+
+        if (parts.HasLinks)
+        {
+            StyleStart(w, "character", LinkStyle, "Hyperlink", null, null, 99, false, false, unhide: true);
+            w.WriteStartElement("rPr", Main);
+            Val(w, "color", OfficeText.Rgb(Look.LinkColor));
+            Val(w, "u", "single");
+            w.WriteEndElement();
+            w.WriteEndElement();
+        }
+
+        if (parts.Footnotes.Count > 0)
+        {
+            StyleStart(w, "paragraph", FootnoteTextStyle, "footnote text", DocxStyle.Normal, null, 99, false, false, unhide: true);
+            w.WriteStartElement("pPr", Main);
+            Spacing(w, 0, 0, 1);
+            w.WriteEndElement();
+            w.WriteStartElement("rPr", Main);
+            Size(w, Math.Max(7, Look.BodySize - 2));
+            w.WriteEndElement();
+            w.WriteEndElement();
+
+            StyleStart(w, "character", FootnoteReferenceStyle, "footnote reference", null, null, 99, false, false, unhide: true);
+            w.WriteStartElement("rPr", Main);
+            Val(w, "vertAlign", "superscript");
+            w.WriteEndElement();
+            w.WriteEndElement();
+        }
     }
 
     /// <summary>
@@ -294,58 +341,158 @@ public sealed partial class DocxDocument
         w.WriteEndElement();
     }
 
+
     /// <summary>
-    /// The heading outline: one list whose levels belong to the heading styles, numbered 1, 1.1, 1.1.1 …
+    /// The numbering part: the heading outline (1, 1.1, 1.1.1 … on the heading styles), then a definition per list
+    /// kind, then one numbering per list. Every numbered list starts again at 1.
     /// </summary>
-    private static void WriteNumbering(XmlWriter w)
+    private void WriteNumbering(XmlWriter w, Parts parts)
     {
         w.WriteStartElement("w", "numbering", Main);
-        w.WriteStartElement("abstractNum", Main);
-        w.WriteAttributeString("w", "abstractNumId", Main, "0");
-        Val(w, "multiLevelType", "multilevel");
-        for (var level = 0; level < 6; level++)
+        if (NumberHeadings)
         {
-            w.WriteStartElement("lvl", Main);
-            w.WriteAttributeString("w", "ilvl", Main, Int(level));
-            Val(w, "start", "1");
-            Val(w, "numFmt", "decimal");
-            Val(w, "pStyle", DocxStyle.Heading(level + 1));
-            var text = new string[level + 1];
-            for (var l = 0; l <= level; l++)
+            w.WriteStartElement("abstractNum", Main);
+            w.WriteAttributeString("w", "abstractNumId", Main, "0");
+            Val(w, "multiLevelType", "multilevel");
+            for (var level = 0; level < 6; level++)
             {
-                text[l] = "%" + Int(l + 1);
+                w.WriteStartElement("lvl", Main);
+                w.WriteAttributeString("w", "ilvl", Main, Int(level));
+                Val(w, "start", "1");
+                Val(w, "numFmt", "decimal");
+                Val(w, "pStyle", DocxStyle.Heading(level + 1));
+                var text = new string[level + 1];
+                for (var l = 0; l <= level; l++)
+                {
+                    text[l] = "%" + Int(l + 1);
+                }
+
+                Val(w, "lvlText", string.Join(".", text));
+                Val(w, "lvlJc", "left");
+                Indent(w, 432 + (144 * level), 432 + (144 * level));
+                w.WriteEndElement();
             }
 
-            Val(w, "lvlText", string.Join(".", text));
-            Val(w, "lvlJc", "left");
-            w.WriteStartElement("pPr", Main);
-            w.WriteStartElement("ind", Main);
-            w.WriteAttributeString("w", "left", Main, Int(432 + (144 * level)));
-            w.WriteAttributeString("w", "hanging", Main, Int(432 + (144 * level)));
             w.WriteEndElement();
+        }
+
+        foreach (var kind in parts.ListKinds)
+        {
+            w.WriteStartElement("abstractNum", Main);
+            w.WriteAttributeString("w", "abstractNumId", Main, Int(ListDefinition(kind)));
+            Val(w, "multiLevelType", "hybridMultilevel");
+            for (var level = 0; level < 9; level++)
+            {
+                w.WriteStartElement("lvl", Main);
+                w.WriteAttributeString("w", "ilvl", Main, Int(level));
+                Val(w, "start", "1");
+                if (kind == DocxListKind.Bullet)
+                {
+                    Val(w, "numFmt", "bullet");
+                    Val(w, "lvlText", level % 3 == 0 ? "\u2022" : level % 3 == 1 ? "\u2013" : "\u00BB");
+                }
+                else
+                {
+                    Val(w, "numFmt", level % 3 == 0 ? "decimal" : level % 3 == 1 ? "lowerLetter" : "lowerRoman");
+                    Val(w, "lvlText", "%" + Int(level + 1) + (level % 3 == 1 ? ")" : "."));
+                }
+
+                Val(w, "lvlJc", "left");
+                Indent(w, 720 * (level + 1), 360);
+                w.WriteEndElement();
+            }
+
             w.WriteEndElement();
+        }
+
+        if (NumberHeadings)
+        {
+            w.WriteStartElement("num", Main);
+            w.WriteAttributeString("w", "numId", Main, "1");
+            Val(w, "abstractNumId", "0");
+            w.WriteEndElement();
+        }
+
+        foreach (var list in parts.ListIds)
+        {
+            w.WriteStartElement("num", Main);
+            w.WriteAttributeString("w", "numId", Main, Int(list.Value));
+            Val(w, "abstractNumId", Int(ListDefinition(list.Key.Kind)));
+            if (list.Key.Kind == DocxListKind.Numbered)
+            {
+                // Lists of one definition would count on from each other without this.
+                w.WriteStartElement("lvlOverride", Main);
+                w.WriteAttributeString("w", "ilvl", Main, "0");
+                Val(w, "startOverride", "1");
+                w.WriteEndElement();
+            }
+
             w.WriteEndElement();
         }
 
         w.WriteEndElement();
-        w.WriteStartElement("num", Main);
-        w.WriteAttributeString("w", "numId", Main, "1");
-        Val(w, "abstractNumId", "0");
+    }
+
+    /// <summary>
+    /// The definition id of a list kind; 0 is the heading outline.
+    /// </summary>
+    private static int ListDefinition(DocxListKind kind) => kind == DocxListKind.Bullet ? 1 : 2;
+
+    /// <summary>
+    /// The indent of a numbering level: the text at <paramref name="left"/>, the number hanging before it.
+    /// </summary>
+    private static void Indent(XmlWriter w, int left, int hanging)
+    {
+        w.WriteStartElement("pPr", Main);
+        w.WriteStartElement("ind", Main);
+        w.WriteAttributeString("w", "left", Main, Int(left));
+        w.WriteAttributeString("w", "hanging", Main, Int(hanging));
         w.WriteEndElement();
         w.WriteEndElement();
     }
 
     /// <summary>
-    /// Settings in the order of the standard; Word 2013+ compatibility, so Word does not open the file in
-    /// compatibility mode.
+    /// Settings in the order of the standard: tracking, protection, tabs, even pages, field updates, footnote
+    /// separators; Word 2013+ compatibility, so Word does not open the file in compatibility mode.
     /// </summary>
-    private static void WriteSettings(XmlWriter w, Parts parts)
+    private void WriteSettings(XmlWriter w, Parts parts)
     {
         w.WriteStartElement("w", "settings", Main);
+        if (TrackChanges) { w.WriteElementString("trackRevisions", Main, null); }
+        if (Protection is DocxProtection protection)
+        {
+            w.WriteStartElement("documentProtection", Main);
+            w.WriteAttributeString("w", "edit", Main, protection == DocxProtection.Forms ? "forms" : protection == DocxProtection.Comments ? "comments" : protection == DocxProtection.TrackedChanges ? "trackedChanges" : "readOnly");
+            w.WriteAttributeString("w", "enforcement", Main, "1");
+            if (Password != null)
+            {
+                var salt = PasswordHash.Salt(Created == null ? null : "Divit|document|" + Created.Value.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                w.WriteAttributeString("w", "algorithmName", Main, PasswordHash.Algorithm);
+                w.WriteAttributeString("w", "hashValue", Main, PasswordHash.Sha512(Password, salt));
+                w.WriteAttributeString("w", "saltValue", Main, Convert.ToBase64String(salt));
+                w.WriteAttributeString("w", "spinCount", Main, Int(PasswordHash.SpinCount));
+            }
+
+            w.WriteEndElement();
+        }
+
         Val(w, "defaultTabStop", "708");
         if (parts.EvenPages) { w.WriteElementString("evenAndOddHeaders", Main, null); }
         Val(w, "characterSpacingControl", "doNotCompress");
-        if (parts.HasContents) { Val(w, "updateFields", "true"); }
+        if (parts.HasContents || parts.HasReferences) { Val(w, "updateFields", "true"); }
+        if (parts.Footnotes.Count > 0)
+        {
+            w.WriteStartElement("footnotePr", Main);
+            foreach (var id in new[] { "-1", "0" })
+            {
+                w.WriteStartElement("footnote", Main);
+                w.WriteAttributeString("w", "id", Main, id);
+                w.WriteEndElement();
+            }
+
+            w.WriteEndElement();
+        }
+
         w.WriteStartElement("compat", Main);
         w.WriteStartElement("compatSetting", Main);
         w.WriteAttributeString("w", "name", Main, "compatibilityMode");

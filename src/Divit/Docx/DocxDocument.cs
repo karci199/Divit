@@ -98,6 +98,33 @@ public sealed partial class DocxDocument
     public DateTime? Created { get; set; }
 
     /// <summary>
+    /// Records every change readers make as a tracked change (Review, Track Changes turned on).
+    /// </summary>
+    public bool TrackChanges { get; set; }
+
+    /// <summary>
+    /// What readers may change once the document is protected; not protected when empty.
+    /// </summary>
+    public DocxProtection? Protection { get; private set; }
+
+    /// <summary>
+    /// Password that lifts the protection; none when empty.
+    /// </summary>
+    internal string? Password { get; private set; }
+
+    /// <summary>
+    /// Protects the document against changes (Review, Restrict Editing). The password is stored as a SHA-512 hash;
+    /// this is no encryption, the text stays readable.
+    /// </summary>
+    /// <param name="protection">What readers may still change.</param>
+    /// <param name="password">Password that lifts it; without one, readers can lift it with a click.</param>
+    public void Protect(DocxProtection protection = DocxProtection.ReadOnly, string? password = null)
+    {
+        Protection = protection;
+        Password = string.IsNullOrEmpty(password) ? null : password;
+    }
+
+    /// <summary>
     /// The sections in order.
     /// </summary>
     public IReadOnlyList<DocxSection> Sections => _sections;
@@ -175,6 +202,13 @@ public sealed partial class DocxDocument
     }
 
     /// <summary>
+    /// Starts a bulleted or numbered list in the last section; its items follow where they are added.
+    /// </summary>
+    /// <param name="kind">Bullets or numbers.</param>
+    /// <returns>The list, to add items.</returns>
+    public DocxList AddList(DocxListKind kind = DocxListKind.Bullet) => Section.AddList(kind);
+
+    /// <summary>
     /// Adds a table to the last section.
     /// </summary>
     /// <param name="columns">Number of columns, 1–63.</param>
@@ -197,6 +231,7 @@ public sealed partial class DocxDocument
         paragraph.Add(Look.CaptionSeparator + text);
         paragraph.Caption = kind;
         paragraph.CaptionText = label + " " + Int(number) + Look.CaptionSeparator + text;
+        paragraph.CaptionLabel = label + " " + Int(number);
         paragraph.KeepWithNext = kind == DocxCaptionKind.Table;
         return paragraph;
     }
@@ -246,10 +281,15 @@ public sealed partial class DocxDocument
                 package.BinaryPart("word/media/" + media.Name, media.Data, false);
             }
 
-            package.XmlPart("word/styles.xml", WriteStyles);
-            if (NumberHeadings)
+            package.XmlPart("word/styles.xml", w => WriteStyles(w, parts));
+            if (parts.HasNumbering)
             {
-                package.XmlPart("word/numbering.xml", WriteNumbering);
+                package.XmlPart("word/numbering.xml", w => WriteNumbering(w, parts));
+            }
+
+            if (parts.Footnotes.Count > 0)
+            {
+                package.XmlPart("word/footnotes.xml", w => WriteFootnotes(w, parts));
             }
 
             package.XmlPart("word/settings.xml", w => WriteSettings(w, parts));
@@ -281,9 +321,14 @@ public sealed partial class DocxDocument
             package.Override("/word/document.xml", ContentType + "document.main+xml");
             package.Override("/word/styles.xml", ContentType + "styles+xml");
             package.Override("/word/settings.xml", ContentType + "settings+xml");
-            if (NumberHeadings)
+            if (parts.HasNumbering)
             {
                 package.Override("/word/numbering.xml", ContentType + "numbering+xml");
+            }
+
+            if (parts.Footnotes.Count > 0)
+            {
+                package.Override("/word/footnotes.xml", ContentType + "footnotes+xml");
             }
 
             foreach (var part in parts.HeadersAndFooters)
@@ -298,18 +343,47 @@ public sealed partial class DocxDocument
         });
     }
 
+
     /// <summary>
-    /// Numbers the headers and footers and gives every part its relationship id before anything is written.
+    /// Numbers the headers and footers and gives every part, image, link, list, footnote and bookmark its id before
+    /// anything is written.
     /// </summary>
     private Parts PlanParts()
     {
         var parts = new Parts();
+        foreach (var section in _sections)
+        {
+            if (section.Watermark != null)
+            {
+                // The watermark lives in the headers, so the section needs one.
+                _ = section.Header;
+            }
+
+            foreach (var container in Containers(section))
+            {
+                foreach (var paragraph in Paragraphs(container))
+                {
+                    parts.HasLists |= paragraph.List != null;
+                    foreach (var run in paragraph.Runs)
+                    {
+                        parts.HasFootnoteRuns |= run.Footnote != null && container is DocxSection;
+                    }
+                }
+            }
+        }
+
+        parts.HasNumbering = NumberHeadings || parts.HasLists;
         parts.Relationships.Add(RelationshipTypes.Styles, "styles.xml");
         parts.Relationships.Add(RelType + "settings", "settings.xml");
         parts.Relationships.Add(RelationshipTypes.Theme, "theme/theme1.xml");
-        if (NumberHeadings)
+        if (parts.HasNumbering)
         {
             parts.Relationships.Add(RelType + "numbering", "numbering.xml");
+        }
+
+        if (parts.HasFootnoteRuns)
+        {
+            parts.Relationships.Add(RelType + "footnotes", "footnotes.xml");
         }
 
         int headers = 0, footers = 0;
@@ -327,9 +401,14 @@ public sealed partial class DocxDocument
                 var name = (part.IsFooter ? "footer" : "header") + part.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".xml";
                 parts.Ids[part] = parts.Relationships.Add(RelType + (part.IsFooter ? "footer" : "header"), name);
                 parts.Widths[part] = section.TextWidthTwips;
+                if (!part.IsFooter && section.Watermark != null)
+                {
+                    parts.Watermarks[part] = section;
+                }
+
                 var own = new RelationshipList();
                 parts.PartRelationships[part] = own;
-                PlanImages(part, own, parts);
+                PlanRuns(part, own, parts, false);
             }
 
             parts.EvenPages |= section.EvenHeaderPart != null || section.EvenFooterPart != null;
@@ -337,38 +416,64 @@ public sealed partial class DocxDocument
 
         foreach (var section in _sections)
         {
-            PlanImages(section, parts.Relationships, parts);
+            PlanRuns(section, parts.Relationships, parts, true);
             foreach (var block in section.Blocks)
             {
                 parts.HasContents |= block is DocxTableOfContents;
             }
         }
 
+        // Bookmarks for the paragraphs that links and references point at, in the order of the body.
+        foreach (var section in _sections)
+        {
+            foreach (var paragraph in Paragraphs(section))
+            {
+                if (parts.Targets.Contains(paragraph))
+                {
+                    parts.Bookmarks[paragraph] = parts.Bookmarks.Count + parts.LabelBookmarks.Count;
+                }
+
+                if (parts.LabelTargets.Contains(paragraph))
+                {
+                    parts.LabelBookmarks[paragraph] = parts.Bookmarks.Count + parts.LabelBookmarks.Count;
+                }
+            }
+        }
+
+        if (parts.Bookmarks.Count != parts.Targets.Count || parts.LabelBookmarks.Count != parts.LabelTargets.Count)
+        {
+            throw new InvalidOperationException(Divit.Properties.Messages.Get(Divit.Properties.Strings.ReferenceTargetMissing));
+        }
+
+        parts.HeadingList = Headings(parts.HeadingNumbers);
         return parts;
     }
 
     /// <summary>
-    /// Gives every image of a part (in its paragraphs and table cells, nested too) a media file and a relationship
-    /// of that part; images are stored as they are.
+    /// A section and its headers and footers.
     /// </summary>
-    private static void PlanImages(DocxContainer container, RelationshipList relationships, Parts parts)
+    private static IEnumerable<DocxContainer> Containers(DocxSection section)
+    {
+        yield return section;
+        foreach (var part in new[] { section.DefaultHeaderPart, section.FirstHeaderPart, section.EvenHeaderPart, section.DefaultFooterPart, section.FirstFooterPart, section.EvenFooterPart })
+        {
+            if (part != null)
+            {
+                yield return part;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The paragraphs of a container in order, those in table cells (nested too) included.
+    /// </summary>
+    private static IEnumerable<DocxParagraph> Paragraphs(DocxContainer container)
     {
         foreach (var block in container.Blocks)
         {
             if (block is DocxParagraph paragraph)
             {
-                foreach (var run in paragraph.Runs)
-                {
-                    if (run.Image == null)
-                    {
-                        continue;
-                    }
-
-                    var name = "image" + (parts.Media.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "." + run.ImageInfo.Extension;
-                    parts.Media.Add((name, run.Image));
-                    parts.MediaTypes[run.ImageInfo.Extension] = run.ImageInfo.ContentType;
-                    parts.ImageIds[run] = relationships.Add(RelationshipTypes.Image, "media/" + name);
-                }
+                yield return paragraph;
             }
             else if (block is DocxTable table)
             {
@@ -376,7 +481,10 @@ public sealed partial class DocxDocument
                 {
                     foreach (var cell in row.Cells)
                     {
-                        PlanImages(cell, relationships, parts);
+                        foreach (var inner in Paragraphs(cell))
+                        {
+                            yield return inner;
+                        }
                     }
                 }
             }
@@ -384,7 +492,60 @@ public sealed partial class DocxDocument
     }
 
     /// <summary>
-    /// The parts of one save: relationships of the main part, the headers and footers with their ids.
+    /// Plans what the runs of a part need: a media file and relationship per image (stored as it is), a
+    /// relationship per web link, a numbering per list, the bookmarks links and references point at, and the
+    /// footnotes of the body.
+    /// </summary>
+    private static void PlanRuns(DocxContainer container, RelationshipList relationships, Parts parts, bool body)
+    {
+        foreach (var paragraph in Paragraphs(container))
+        {
+            if (paragraph.List is DocxList list && !parts.ListIds.ContainsKey(list))
+            {
+                parts.ListIds[list] = parts.ListIds.Count + 2;
+                parts.ListKinds.Add(list.Kind);
+            }
+
+            foreach (var run in paragraph.Runs)
+            {
+                if (run.Image != null)
+                {
+                    var name = "image" + (parts.Media.Count + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "." + run.ImageInfo.Extension;
+                    parts.Media.Add((name, run.Image));
+                    parts.MediaTypes[run.ImageInfo.Extension] = run.ImageInfo.ContentType;
+                    parts.ImageIds[run] = relationships.Add(RelationshipTypes.Image, "media/" + name);
+                }
+                else if (run.LinkUrl != null)
+                {
+                    parts.LinkIds[run] = relationships.Add(RelationshipTypes.Hyperlink, run.LinkUrl, true);
+                    parts.HasLinks = true;
+                }
+                else if (run.LinkTarget != null)
+                {
+                    parts.Targets.Add(run.LinkTarget);
+                    parts.HasLinks = true;
+                }
+                else if (run.ReferenceTarget != null)
+                {
+                    (run.ReferenceKind == DocxReferenceKind.Label ? parts.LabelTargets : parts.Targets).Add(run.ReferenceTarget);
+                    parts.HasReferences = true;
+                }
+                else if (run.CheckBox != null)
+                {
+                    parts.CheckBoxParts.Add(container);
+                }
+                else if (run.Footnote != null && body)
+                {
+                    parts.FootnoteIds[run] = parts.Footnotes.Count + 1;
+                    parts.Footnotes.Add(run);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The parts of one save: relationships of the main part, the headers and footers with their ids, and the ids
+    /// of images, links, lists, footnotes and bookmarks.
     /// </summary>
     private sealed class Parts
     {
@@ -400,9 +561,14 @@ public sealed partial class DocxDocument
         public Dictionary<DocxHeaderFooter, int> Widths { get; } = new Dictionary<DocxHeaderFooter, int>();
 
         /// <summary>
-        /// The relationships of each header and footer part (its images).
+        /// The relationships of each header and footer part (its images and links).
         /// </summary>
         public Dictionary<DocxHeaderFooter, RelationshipList> PartRelationships { get; } = new Dictionary<DocxHeaderFooter, RelationshipList>();
+
+        /// <summary>
+        /// The headers that draw their section's watermark.
+        /// </summary>
+        public Dictionary<DocxHeaderFooter, DocxSection> Watermarks { get; } = new Dictionary<DocxHeaderFooter, DocxSection>();
 
         /// <summary>
         /// Media files in order: name in word/media and bytes.
@@ -420,9 +586,64 @@ public sealed partial class DocxDocument
         public Dictionary<DocxRun, string> ImageIds { get; } = new Dictionary<DocxRun, string>();
 
         /// <summary>
+        /// The relationship id of each web link, in the part that holds it.
+        /// </summary>
+        public Dictionary<DocxRun, string> LinkIds { get; } = new Dictionary<DocxRun, string>();
+
+        /// <summary>
+        /// The numbering id of each list; 1 is the heading outline.
+        /// </summary>
+        public Dictionary<DocxList, int> ListIds { get; } = new Dictionary<DocxList, int>();
+
+        /// <summary>
+        /// The kinds of list used, each with its own numbering definition.
+        /// </summary>
+        public SortedSet<DocxListKind> ListKinds { get; } = new SortedSet<DocxListKind>();
+
+        /// <summary>
+        /// Paragraphs that links and references point at as a whole, and captions whose label they show.
+        /// </summary>
+        public HashSet<DocxParagraph> Targets { get; } = new HashSet<DocxParagraph>();
+
+        public HashSet<DocxParagraph> LabelTargets { get; } = new HashSet<DocxParagraph>();
+
+        /// <summary>
+        /// Bookmark ids around whole paragraphs and around the label of captions.
+        /// </summary>
+        public Dictionary<DocxParagraph, int> Bookmarks { get; } = new Dictionary<DocxParagraph, int>();
+
+        public Dictionary<DocxParagraph, int> LabelBookmarks { get; } = new Dictionary<DocxParagraph, int>();
+
+        /// <summary>
+        /// The footnotes of the body in order, and the id of each.
+        /// </summary>
+        public List<DocxRun> Footnotes { get; } = new List<DocxRun>();
+
+        public Dictionary<DocxRun, int> FootnoteIds { get; } = new Dictionary<DocxRun, int>();
+
+        /// <summary>
+        /// The parts (a section stands for the main part) that hold check boxes, which need the Word 2010 namespace.
+        /// </summary>
+        public HashSet<DocxContainer> CheckBoxParts { get; } = new HashSet<DocxContainer>();
+
+        /// <summary>
+        /// The headings in order with their numbers, and the number of each heading paragraph.
+        /// </summary>
+        public IReadOnlyList<(int Level, string Number, string Text)> HeadingList { get; set; } = Array.Empty<(int, string, string)>();
+
+        public Dictionary<DocxParagraph, string> HeadingNumbers { get; } = new Dictionary<DocxParagraph, string>();
+
+        /// <summary>
         /// Counter of drawing ids, which Word wants unique in the document.
         /// </summary>
         public int Drawings { get; set; }
+
+        /// <summary>
+        /// Counters of content control and shape ids, unique in the document.
+        /// </summary>
+        public int Controls { get; set; }
+
+        public int Shapes { get; set; }
 
         /// <summary>
         /// Whether any section has its own even-page header or footer, which Word turns on for the whole document.
@@ -433,5 +654,18 @@ public sealed partial class DocxDocument
         /// Whether the document has a table of contents, which asks Word to update the fields on opening.
         /// </summary>
         public bool HasContents { get; set; }
+
+        public bool HasLists { get; set; }
+
+        /// <summary>
+        /// Whether a numbering part is written: numbered headings or lists.
+        /// </summary>
+        public bool HasNumbering { get; set; }
+
+        public bool HasLinks { get; set; }
+
+        public bool HasReferences { get; set; }
+
+        public bool HasFootnoteRuns { get; set; }
     }
 }

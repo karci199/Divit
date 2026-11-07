@@ -53,6 +53,8 @@ internal static class Strings
     internal const string PivotNameDuplicate = nameof(PivotNameDuplicate);
     internal const string TableColumnsOutOfRange = nameof(TableColumnsOutOfRange);
     internal const string TableWidthsCount = nameof(TableWidthsCount);
+    internal const string ReferenceNotCaption = nameof(ReferenceNotCaption);
+    internal const string ReferenceTargetMissing = nameof(ReferenceTargetMissing);
 }
 
 /// <summary>

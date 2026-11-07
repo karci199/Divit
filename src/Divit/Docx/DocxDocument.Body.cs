@@ -19,9 +19,16 @@ public sealed partial class DocxDocument
     /// </summary>
     private void WriteDocument(XmlWriter w, Parts parts)
     {
-        var scope = new Scope(parts, Headings(), Captions());
+        var scope = new Scope(parts, parts.HeadingList, Captions());
         w.WriteStartElement("w", "document", Main);
         w.WriteAttributeString("xmlns", "r", null, RelNs);
+        var checkBoxes = false;
+        foreach (var section in _sections)
+        {
+            checkBoxes |= parts.CheckBoxParts.Contains(section);
+        }
+
+        if (checkBoxes) { Word2010Namespaces(w); }
         w.WriteStartElement("body", Main);
         for (var i = 0; i < _sections.Count; i++)
         {
@@ -48,10 +55,20 @@ public sealed partial class DocxDocument
     {
         w.WriteStartElement("w", part.IsFooter ? "ftr" : "hdr", Main);
         w.WriteAttributeString("xmlns", "r", null, RelNs);
+        parts.Watermarks.TryGetValue(part, out var watermark);
+        if (watermark != null)
+        {
+            w.WriteAttributeString("xmlns", "v", null, VmlNs);
+            w.WriteAttributeString("xmlns", "o", null, OfficeVmlNs);
+            w.WriteAttributeString("xmlns", "w10", null, WordVmlNs);
+        }
+
+        if (parts.CheckBoxParts.Contains(part)) { Word2010Namespaces(w); }
+        if (watermark != null) { WriteWatermark(w, watermark, parts); }
         WriteBlocks(w, part, new Scope(parts, Array.Empty<(int, string, string)>(), Array.Empty<(DocxCaptionKind, string)>()) { Width = parts.Widths[part] });
 
         // A header or footer holds at least one paragraph.
-        if (part.Blocks.Count == 0)
+        if (part.Blocks.Count == 0 && watermark == null)
         {
             w.WriteElementString("p", Main, null);
         }
@@ -81,22 +98,61 @@ public sealed partial class DocxDocument
     private void WriteParagraph(XmlWriter w, DocxParagraph p, Scope scope, DocxAlignment? alignment = null)
     {
         w.WriteStartElement("p", Main);
-        WriteParagraphProperties(w, p, alignment);
-        foreach (var run in p.Runs)
+        var parts = scope.Parts;
+        WriteParagraphProperties(w, p, alignment, p.List != null ? parts.ListIds[p.List] : 0);
+
+        // Bookmarks: around the whole paragraph, and around a caption's label and number (its first two runs).
+        var whole = parts.Bookmarks.TryGetValue(p, out var wholeId) ? wholeId : -1;
+        var label = parts.LabelBookmarks.TryGetValue(p, out var labelId) ? labelId : -1;
+        if (whole >= 0) { BookmarkStart(w, whole); }
+        for (var i = 0; i < p.Runs.Count; i++)
         {
-            WriteRun(w, run, scope);
+            if (i == 0 && label >= 0) { BookmarkStart(w, label); }
+            WriteRun(w, p.Runs[i], scope);
+            if (i == 1 && label >= 0) { BookmarkEnd(w, label); }
         }
 
+        if (whole >= 0) { BookmarkEnd(w, whole); }
         w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// The hidden bookmark name of an id, as Word names the targets of its cross-references.
+    /// </summary>
+    private static string BookmarkName(int id) => "_Ref" + Int(id + 1);
+
+    private static void BookmarkStart(XmlWriter w, int id)
+    {
+        w.WriteStartElement("bookmarkStart", Main);
+        w.WriteAttributeString("w", "id", Main, Int(id));
+        w.WriteAttributeString("w", "name", Main, BookmarkName(id));
+        w.WriteEndElement();
+    }
+
+    private static void BookmarkEnd(XmlWriter w, int id)
+    {
+        w.WriteStartElement("bookmarkEnd", Main);
+        w.WriteAttributeString("w", "id", Main, Int(id));
+        w.WriteEndElement();
+    }
+
+    /// <summary>
+    /// Declares the Word 2010 namespace of check boxes as ignorable, so older readers skip what they do not know.
+    /// </summary>
+    private static void Word2010Namespaces(XmlWriter w)
+    {
+        w.WriteAttributeString("xmlns", "mc", null, CompatibilityNs);
+        w.WriteAttributeString("xmlns", "w14", null, Word2010Ns);
+        w.WriteAttributeString("mc", "Ignorable", CompatibilityNs, "w14");
     }
 
     /// <summary>
     /// Paragraph properties in the order of the standard: style, keeping, page break, border, shading, tabs, spacing,
     /// indents, alignment.
     /// </summary>
-    private static void WriteParagraphProperties(XmlWriter w, DocxParagraph p, DocxAlignment? fallback)
+    private static void WriteParagraphProperties(XmlWriter w, DocxParagraph p, DocxAlignment? fallback, int list)
     {
-        var any = p.Style != DocxStyle.Normal || p.KeepWithNext || p.KeepTogether || p.PageBreakBefore || p.Border != null
+        var any = p.Style != DocxStyle.Normal || p.KeepWithNext || p.KeepTogether || p.PageBreakBefore || p.Border != null || list > 0
             || p.Shading != null || p.TabStops.Count > 0 || p.SpaceBefore != null || p.SpaceAfter != null || p.LineSpacing != null
             || p.LeftIndent != 0 || p.RightIndent != 0 || p.FirstLineIndent != 0 || (p.Alignment ?? fallback) != null;
         if (!any)
@@ -109,6 +165,7 @@ public sealed partial class DocxDocument
         if (p.KeepWithNext) { w.WriteElementString("keepNext", Main, null); }
         if (p.KeepTogether) { w.WriteElementString("keepLines", Main, null); }
         if (p.PageBreakBefore) { w.WriteElementString("pageBreakBefore", Main, null); }
+        if (list > 0) { NumberingProperties(w, p.ListLevel, list); }
         if (p.Border is DocxBorder border)
         {
             w.WriteStartElement("pBdr", Main);
@@ -193,6 +250,49 @@ public sealed partial class DocxDocument
             return;
         }
 
+        var parts = scope.Parts;
+        if (run.LinkUrl != null || run.LinkTarget != null)
+        {
+            w.WriteStartElement("hyperlink", Main);
+            if (run.LinkTarget != null) { w.WriteAttributeString("w", "anchor", Main, BookmarkName(parts.Bookmarks[run.LinkTarget])); }
+            w.WriteAttributeString("w", "history", Main, "1");
+            if (run.LinkUrl != null) { w.WriteAttributeString("r", "id", RelNs, parts.LinkIds[run]); }
+            w.WriteStartElement("r", Main);
+            WriteRunProperties(w, run.Font, LinkStyle);
+            Text(w, run.Text ?? string.Empty);
+            w.WriteEndElement();
+            w.WriteEndElement();
+            return;
+        }
+
+        if (run.ReferenceTarget is DocxParagraph target)
+        {
+            WriteReference(w, run, target, parts);
+            return;
+        }
+
+        if (run.CheckBox is bool ticked)
+        {
+            WriteCheckBox(w, run, ticked, parts);
+            return;
+        }
+
+        if (run.Footnote != null)
+        {
+            // Footnotes belong to the body; in a header or footer there is none to point at.
+            if (parts.FootnoteIds.TryGetValue(run, out var note))
+            {
+                w.WriteStartElement("r", Main);
+                WriteRunProperties(w, null, FootnoteReferenceStyle);
+                w.WriteStartElement("footnoteReference", Main);
+                w.WriteAttributeString("w", "id", Main, Int(note));
+                w.WriteEndElement();
+                w.WriteEndElement();
+            }
+
+            return;
+        }
+
         w.WriteStartElement("r", Main);
         WriteRunProperties(w, run.Font);
         if (run.Text != null) { Text(w, run.Text); }
@@ -211,14 +311,16 @@ public sealed partial class DocxDocument
     /// <summary>
     /// Run properties in the order of the standard; nothing when the run takes its style's look.
     /// </summary>
-    private static void WriteRunProperties(XmlWriter w, DocxFont? font)
+    private static void WriteRunProperties(XmlWriter w, DocxFont? font, string? style = null)
     {
-        if (!(font is DocxFont f))
+        if (font == null && style == null)
         {
             return;
         }
 
+        var f = font ?? default;
         w.WriteStartElement("rPr", Main);
+        if (style != null) { Val(w, "rStyle", style); }
         if (f.Name != null) { Fonts(w, f.Name); }
         if (f.Bold) { w.WriteElementString("b", Main, null); w.WriteElementString("bCs", Main, null); }
         if (f.Italic) { w.WriteElementString("i", Main, null); w.WriteElementString("iCs", Main, null); }
@@ -343,7 +445,7 @@ public sealed partial class DocxDocument
     /// <summary>
     /// The headings of the document in order, with the numbers Word gives them when headings are numbered.
     /// </summary>
-    private List<(int Level, string Number, string Text)> Headings()
+    private List<(int Level, string Number, string Text)> Headings(Dictionary<DocxParagraph, string> numbers)
     {
         var list = new List<(int, string, string)>();
         var counters = new int[7];
@@ -377,6 +479,7 @@ public sealed partial class DocxDocument
                 }
 
                 list.Add((level, number, p.Text));
+                numbers[p] = number;
             }
         }
 

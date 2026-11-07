@@ -135,4 +135,10 @@
   <data name="TableWidthsCount" xml:space="preserve">
     <value>Got {0} values for a table of {1} columns.</value>
   </data>
+  <data name="ReferenceNotCaption" xml:space="preserve">
+    <value>Only a caption has a label to refer to.</value>
+  </data>
+  <data name="ReferenceTargetMissing" xml:space="preserve">
+    <value>A cross-reference or link points at a paragraph that is not in the body of the document.</value>
+  </data>
 </root>

@@ -292,6 +292,11 @@ public static class DocxStyle
     public const string NoSpacing = "NoSpacing";
 
     /// <summary>
+    /// An item of a bulleted or numbered list (<see cref="DocxList.AddItem"/>).
+    /// </summary>
+    public const string ListParagraph = "ListParagraph";
+
+    /// <summary>
     /// The heading of a level, 1–6.
     /// </summary>
     /// <param name="level">The level.</param>
@@ -336,6 +341,30 @@ internal sealed class DocxRun
     public long ImageHeight { get; set; }
 
     public string? Description { get; set; }
+
+    /// <summary>
+    /// A link around the text: to a web address, or to a paragraph of the document.
+    /// </summary>
+    public string? LinkUrl { get; set; }
+
+    public DocxParagraph? LinkTarget { get; set; }
+
+    /// <summary>
+    /// A cross-reference field: the paragraph it points at and what it shows of it.
+    /// </summary>
+    public DocxParagraph? ReferenceTarget { get; set; }
+
+    public DocxReferenceKind ReferenceKind { get; set; }
+
+    /// <summary>
+    /// A check box that readers can tick; whether it starts ticked.
+    /// </summary>
+    public bool? CheckBox { get; set; }
+
+    /// <summary>
+    /// A footnote: the mark in the text, and the note's text at the foot of the page.
+    /// </summary>
+    public string? Footnote { get; set; }
 }
 
 /// <summary>
@@ -600,6 +629,101 @@ public sealed class DocxParagraph : DocxBlock
         return this;
     }
 
+    /// <summary>
+    /// Adds a link to a web page, a file or an e-mail address (<c>mailto:</c>); Word shows it in the link style.
+    /// </summary>
+    /// <param name="text">The text shown.</param>
+    /// <param name="url">The address, for example <c>https://example.com</c>.</param>
+    /// <param name="font">Its font; the link style's when empty.</param>
+    /// <returns>This paragraph.</returns>
+    /// <exception cref="ArgumentException">The address is empty.</exception>
+    public DocxParagraph AddLink(string text, string url, DocxFont? font = null)
+    {
+        if (string.IsNullOrEmpty(url))
+        {
+            throw new ArgumentException(Divit.Properties.Messages.Get(Divit.Properties.Strings.LinkEmpty), nameof(url));
+        }
+
+        _runs.Add(new DocxRun { Text = text, LinkUrl = url, Font = font });
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a link that jumps to a paragraph of the document, such as a heading or a caption.
+    /// </summary>
+    /// <param name="text">The text shown.</param>
+    /// <param name="target">The paragraph to jump to; it must be in the body when the document is saved.</param>
+    /// <param name="font">Its font; the link style's when empty.</param>
+    /// <returns>This paragraph.</returns>
+    public DocxParagraph AddLink(string text, DocxParagraph target, DocxFont? font = null)
+    {
+        _runs.Add(new DocxRun { Text = text, LinkTarget = target ?? throw new ArgumentNullException(nameof(target)), Font = font });
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a cross-reference to a paragraph: its text, its heading number, its page, or a caption's label and number
+    /// ("see Figure 3 on page 7"). Word updates it with the fields, so it follows when headings and captions move;
+    /// until then it shows the values Divit knows (the page as 1). A click on it jumps to the paragraph.
+    /// </summary>
+    /// <param name="target">The paragraph it points at; it must be in the body when the document is saved.</param>
+    /// <param name="kind">What it shows.</param>
+    /// <param name="font">Its font; the paragraph's when empty.</param>
+    /// <returns>This paragraph.</returns>
+    /// <exception cref="ArgumentException"><see cref="DocxReferenceKind.Label"/> for a paragraph that is no
+    /// caption.</exception>
+    public DocxParagraph AddReference(DocxParagraph target, DocxReferenceKind kind = DocxReferenceKind.Text, DocxFont? font = null)
+    {
+        if (target == null)
+        {
+            throw new ArgumentNullException(nameof(target));
+        }
+
+        if (kind == DocxReferenceKind.Label && target.Caption == null)
+        {
+            throw new ArgumentException(Divit.Properties.Messages.Get(Divit.Properties.Strings.ReferenceNotCaption), nameof(target));
+        }
+
+        _runs.Add(new DocxRun { ReferenceTarget = target, ReferenceKind = kind, Font = font });
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a check box readers can tick with a click (a Word 2010 content control); older readers show its box.
+    /// </summary>
+    /// <param name="isChecked">Whether it starts ticked.</param>
+    /// <param name="font">Its size and colour; the paragraph's when empty.</param>
+    /// <returns>This paragraph.</returns>
+    public DocxParagraph AddCheckBox(bool isChecked = false, DocxFont? font = null)
+    {
+        _runs.Add(new DocxRun { CheckBox = isChecked, Font = font });
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a footnote: a number here, and the note at the foot of the page. Footnotes belong to the body; in a
+    /// header or footer they are left out.
+    /// </summary>
+    /// <param name="text">The note's text.</param>
+    /// <returns>This paragraph.</returns>
+    public DocxParagraph AddFootnote(string text)
+    {
+        _runs.Add(new DocxRun { Footnote = text ?? string.Empty });
+        return this;
+    }
+
+    /// <summary>
+    /// The list the paragraph is an item of, and its depth.
+    /// </summary>
+    internal DocxList? List { get; set; }
+
+    internal int ListLevel { get; set; }
+
+    /// <summary>
+    /// A caption's label and number ("Figure 3"), which a <see cref="DocxReferenceKind.Label"/> reference shows.
+    /// </summary>
+    internal string? CaptionLabel { get; set; }
+
     internal void AddPageBreakRun() => _runs.Add(new DocxRun { PageBreak = true });
 
     internal void AddFieldRun(string code, string result) => _runs.Add(new DocxRun { Code = code, Result = result });
@@ -688,6 +812,13 @@ public abstract class DocxContainer
         _blocks.Add(table);
         return table;
     }
+
+    /// <summary>
+    /// Starts a bulleted or numbered list; its items follow where they are added.
+    /// </summary>
+    /// <param name="kind">Bullets or numbers.</param>
+    /// <returns>The list, to add items.</returns>
+    public DocxList AddList(DocxListKind kind = DocxListKind.Bullet) => new DocxList(this, kind);
 
     internal void AddBlock(DocxBlock block) => _blocks.Add(block);
 }

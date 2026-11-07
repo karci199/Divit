@@ -212,6 +212,17 @@ public sealed class DocxSection : DocxContainer
     public DocxNumberFormat PageNumberFormat { get; set; }
 
     /// <summary>
+    /// Text set large and slanted behind the pages, such as "DRAFT" or "CONFIDENTIAL"; none when empty. It is part of
+    /// the section's headers, so the section gets a header of its own when it has none.
+    /// </summary>
+    public string? Watermark { get; set; }
+
+    /// <summary>
+    /// Colour of the watermark, drawn half transparent.
+    /// </summary>
+    public string WatermarkColor { get; set; } = "#C0C0C0";
+
+    /// <summary>
     /// The header of every page (or the odd pages when <see cref="EvenPageHeader"/> is used). Created when first used.
     /// </summary>
     public DocxHeaderFooter Header => _header ??= new DocxHeaderFooter(false);

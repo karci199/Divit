@@ -95,6 +95,11 @@ public sealed class DocxLook
     /// </summary>
     public string CaptionSeparator { get; set; } = " – ";
 
+    /// <summary>
+    /// Colour of links, underlined.
+    /// </summary>
+    public string LinkColor { get; set; } = "#0563C1";
+
     internal string Heading => HeadingFont ?? BodyFont;
 
     internal double HeadingSize(int level) =>

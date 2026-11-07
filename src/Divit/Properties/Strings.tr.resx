@@ -135,4 +135,10 @@
   <data name="TableWidthsCount" xml:space="preserve">
     <value>{1} sütunlu bir tablo için {0} değer verildi.</value>
   </data>
+  <data name="ReferenceNotCaption" xml:space="preserve">
+    <value>Yalnızca bir resim veya tablo yazısının başvurulacak etiketi vardır.</value>
+  </data>
+  <data name="ReferenceTargetMissing" xml:space="preserve">
+    <value>Bir çapraz başvuru veya bağlantı, belgenin gövdesinde olmayan bir paragrafı gösteriyor.</value>
+  </data>
 </root>
