@@ -686,6 +686,7 @@ public sealed class XlsxSheet
     {
         Check(first, 1);
         Check(last, 1);
+        NotStreamed();
         Group(_rows, first, last, collapsed, last < MaxRow);
     }
 
@@ -821,6 +822,7 @@ public sealed class XlsxSheet
     /// table on this sheet.</exception>
     public XlsxTable AddTable(int row1, int column1, int row2, int column2, string name)
     {
+        NotStreamed();
         CheckRange(row1, column1, row2, column2);
         if (row2 <= row1)
         {
@@ -923,6 +925,7 @@ public sealed class XlsxSheet
 
     private Cell At(int row, int column)
     {
+        NotStreamed();
         Check(row, column);
         var key = Key(row, column);
         if (!_cells.TryGetValue(key, out var cell))
@@ -935,6 +938,30 @@ public sealed class XlsxSheet
     }
 
     /// <summary>
+    /// Writes the rows of a streamed sheet while it is saved; <c>null</c> for a sheet that keeps its cells.
+    /// </summary>
+    internal Action<XlsxRowWriter>? RowSource { get; set; }
+
+    /// <summary>
+    /// Whether a streamed sheet writes texts into their cells instead of the shared string table.
+    /// </summary>
+    internal bool InlineStrings { get; set; }
+
+    /// <summary>
+    /// Whether the rows of the sheet are written by a callback while saving (<see cref="XlsxWorkbook.AddStreamedSheet"/>).
+    /// </summary>
+    public bool IsStreamed => RowSource != null;
+
+    /// <exception cref="InvalidOperationException">The sheet is streamed: its cells and rows come from its callback.</exception>
+    private void NotStreamed()
+    {
+        if (RowSource != null)
+        {
+            throw new InvalidOperationException(Messages.Format(Strings.SheetIsStreamed, Name));
+        }
+    }
+
+    /// <summary>
     /// Writes a value; a formula in the cell goes, the style stays.
     /// </summary>
     private void Value(int row, int column, object? value)
@@ -944,7 +971,11 @@ public sealed class XlsxSheet
         cell.Formula = null;
     }
 
-    private Line RowLine(int row) => LineOf(_rows, row);
+    private Line RowLine(int row)
+    {
+        NotStreamed();
+        return LineOf(_rows, row);
+    }
 
     private Line ColumnLine(int column) => LineOf(_columns, column);
 

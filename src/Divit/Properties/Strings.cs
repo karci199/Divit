@@ -42,6 +42,9 @@ internal static class Strings
     internal const string TableNameDuplicate = nameof(TableNameDuplicate);
     internal const string TableOverlapsMerge = nameof(TableOverlapsMerge);
     internal const string TableOverlapsFilter = nameof(TableOverlapsFilter);
+    internal const string SheetIsStreamed = nameof(SheetIsStreamed);
+    internal const string RowAlreadyStarted = nameof(RowAlreadyStarted);
+    internal const string CellValueType = nameof(CellValueType);
 }
 
 /// <summary>

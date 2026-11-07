@@ -102,4 +102,13 @@
   <data name="TableOverlapsFilter" xml:space="preserve">
     <value>Table &quot;{0}&quot; overlaps the sheet's auto filter; a table brings its own filter.</value>
   </data>
+  <data name="SheetIsStreamed" xml:space="preserve">
+    <value>Sheet &quot;{0}&quot; is streamed: its cells and rows are written by its callback while saving.</value>
+  </data>
+  <data name="RowAlreadyStarted" xml:space="preserve">
+    <value>A row is already open; end it with EndRow before starting the next.</value>
+  </data>
+  <data name="CellValueType" xml:space="preserve">
+    <value>A cell cannot hold a value of type {0}; use text, a number, a date or a boolean.</value>
+  </data>
 </root>

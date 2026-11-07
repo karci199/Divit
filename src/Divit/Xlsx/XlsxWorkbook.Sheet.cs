@@ -53,29 +53,33 @@ public sealed partial class XlsxWorkbook
         var heights = sheet.Rows.Keys.ToArray();
         Array.Sort(heights);
 
-        w.WriteStartElement("dimension", MainNs);
-        if (count == 0)
+        // The used range of a streamed sheet is known only after its rows; the element is optional and left out.
+        if (sheet.RowSource == null)
         {
-            w.WriteAttributeString("ref", "A1");
-        }
-        else
-        {
-            var lastColumn = 1;
-            foreach (var key in keys)
+            w.WriteStartElement("dimension", MainNs);
+            if (count == 0)
             {
-                lastColumn = Math.Max(lastColumn, XlsxSheet.ColumnOf(key));
+                w.WriteAttributeString("ref", "A1");
+            }
+            else
+            {
+                var lastColumn = 1;
+                foreach (var key in keys)
+                {
+                    lastColumn = Math.Max(lastColumn, XlsxSheet.ColumnOf(key));
+                }
+
+                var lastRow = XlsxSheet.RowOf(keys[count - 1]);
+                if (heights.Length > 0)
+                {
+                    lastRow = Math.Max(lastRow, heights[heights.Length - 1]);
+                }
+
+                w.WriteAttributeString("ref", "A1:" + CellName(lastRow, lastColumn));
             }
 
-            var lastRow = XlsxSheet.RowOf(keys[count - 1]);
-            if (heights.Length > 0)
-            {
-                lastRow = Math.Max(lastRow, heights[heights.Length - 1]);
-            }
-
-            w.WriteAttributeString("ref", "A1:" + CellName(lastRow, lastColumn));
+            w.WriteEndElement();
         }
-
-        w.WriteEndElement();
 
         // sheetViews: gridlines, selected tab, frozen panes.
         w.WriteStartElement("sheetViews", MainNs);
@@ -149,6 +153,15 @@ public sealed partial class XlsxWorkbook
         // dominate the save.
         w.WriteStartElement("sheetData", MainNs);
         var buffer = new char[64];
+
+        // A streamed sheet holds no cells: its callback writes them straight into this part.
+        if (sheet.RowSource != null)
+        {
+            var rows = new XlsxRowWriter(new StreamSink(this, w, styles, strings, buffer, sheet.InlineStrings));
+            sheet.RowSource(rows);
+            rows.Finish();
+        }
+
         var index = 0;
         var nextHeight = 0;
         while (index < count || nextHeight < heights.Length)

@@ -102,4 +102,13 @@
   <data name="TableOverlapsFilter" xml:space="preserve">
     <value>&quot;{0}&quot; tablosu sayfanın otomatik filtresiyle çakışıyor; tablo kendi filtresini getirir.</value>
   </data>
+  <data name="SheetIsStreamed" xml:space="preserve">
+    <value>&quot;{0}&quot; sayfası akışlı: hücreleri ve satırları kayıt sırasında geri çağrısı yazar.</value>
+  </data>
+  <data name="RowAlreadyStarted" xml:space="preserve">
+    <value>Bir satır zaten açık; sonrakine başlamadan EndRow ile kapatın.</value>
+  </data>
+  <data name="CellValueType" xml:space="preserve">
+    <value>Hücre {0} türünde değer tutamaz; metin, sayı, tarih ya da mantıksal değer kullanın.</value>
+  </data>
 </root>

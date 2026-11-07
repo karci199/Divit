@@ -68,17 +68,7 @@ public sealed partial class XlsxWorkbook
                 }
                 else
                 {
-                    foreach (var run in ((XlsxRichText)item).Runs)
-                    {
-                        w.WriteStartElement("r", MainNs);
-                        if (run.Look is XlsxStyle look)
-                        {
-                            RunProperties(w, look);
-                        }
-
-                        Text(w, run.Text);
-                        w.WriteEndElement();
-                    }
+                    Runs(w, (XlsxRichText)item);
                 }
 
                 w.WriteEndElement();
@@ -87,7 +77,28 @@ public sealed partial class XlsxWorkbook
             w.WriteEndElement();
         }
 
-        private static void Text(XmlWriter w, string text)
+        /// <summary>
+        /// The pieces of a rich text, inside a shared string item or an inline string.
+        /// </summary>
+        public void Runs(XmlWriter w, XlsxRichText text)
+        {
+            foreach (var run in text.Runs)
+            {
+                w.WriteStartElement("r", MainNs);
+                if (run.Look is XlsxStyle look)
+                {
+                    RunProperties(w, look);
+                }
+
+                Text(w, run.Text);
+                w.WriteEndElement();
+            }
+        }
+
+        /// <summary>
+        /// A <c>t</c> element; spaces at the ends and line breaks are kept.
+        /// </summary>
+        public static void Text(XmlWriter w, string text)
         {
             w.WriteStartElement("t", MainNs);
             if (text.Length > 0 && (char.IsWhiteSpace(text[0]) || char.IsWhiteSpace(text[text.Length - 1]) || text.IndexOf('\n') >= 0))
