@@ -61,10 +61,12 @@ public sealed partial class DocxDocument
         private int _footnotes;
         private DocxParagraph? _previous;
         private string? _next;
+        private bool _hyphenate;
 
         public PdfLayout(DocxDocument doc)
         {
             _doc = doc;
+            _hyphenate = doc.Hyphenation && DocxHyphenation.Knows(doc.Language);
             _pdf = new PdfDocument { Title = doc.Title, Author = doc.Author, Subject = doc.Subject, Keywords = doc.Keywords, Application = doc.Application, Created = doc.Created };
             doc.Headings(_numbers);
             foreach (var section in doc._sections)
@@ -679,6 +681,15 @@ public sealed partial class DocxDocument
 
                 if (x + atom.Width > right + 0.01 && current.Atoms.Exists(a => a.Kind != AtomKind.Space && a.Kind != AtomKind.Tab))
                 {
+                    // A long word is broken with a hyphen when its first part fits the rest of the line.
+                    if (_hyphenate && atom.Kind == AtomKind.Word && Split(atom, right - x) is (Atom head, Atom tail))
+                    {
+                        current.Atoms.Add(head);
+                        atoms.Insert(i + 1, tail);
+                        Finish(false);
+                        continue;
+                    }
+
                     Finish(false);
                 }
 
@@ -693,6 +704,31 @@ public sealed partial class DocxDocument
             }
 
             return lines;
+        }
+
+        /// <summary>
+        /// A word split at its last syllable break whose first part, with a hyphen, fits the room left on the line.
+        /// </summary>
+        private static (Atom Head, Atom Tail)? Split(Atom atom, double room)
+        {
+            var points = DocxHyphenation.Points(atom.Text);
+            for (var k = points.Count - 1; k >= 0; k--)
+            {
+                var head = atom.Text.Substring(0, points[k]) + "-";
+                var width = atom.Font!.Measure(head, atom.Size);
+                if (width <= room)
+                {
+                    var first = atom.Copy();
+                    first.Text = head;
+                    first.Width = width;
+                    var rest = atom.Copy();
+                    rest.Text = atom.Text.Substring(points[k]);
+                    rest.Width = atom.Font.Measure(rest.Text, atom.Size);
+                    return (first, rest);
+                }
+            }
+
+            return null;
         }
 
         private static (double Position, DocxTabAlignment Alignment, DocxTabLeader Leader) NextStop(double x, Style s, double width, IReadOnlyList<DocxTabStop> stops)
@@ -1484,6 +1520,8 @@ public sealed partial class DocxDocument
         public string? Url;
         public DocxParagraph? Target;
         public DocxTabLeader Leader;
+
+        public Atom Copy() => (Atom)MemberwiseClone();
     }
 
     private sealed class Line

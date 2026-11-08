@@ -107,6 +107,12 @@ public sealed partial class DocxDocument
     public DateTime? Created { get; set; }
 
     /// <summary>
+    /// Breaks long words at the ends of lines with a hyphen: Word does it by its rules for <see cref="Language"/>;
+    /// the PDF layout (<see cref="SavePdf"/>) does it for Turkish by its syllables.
+    /// </summary>
+    public bool Hyphenation { get; set; }
+
+    /// <summary>
     /// Records every change readers make as a tracked change (Review, Track Changes turned on).
     /// </summary>
     public bool TrackChanges { get; set; }

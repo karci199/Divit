@@ -230,6 +230,64 @@ public class DocxPdfTests
         Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(text, "/Subtype /Link").Count);
     }
 
+    [Theory]
+    [InlineData("kalibrasyonlarından", "ka-lib-ras-yon-la-rın-dan")]
+    [InlineData("kontrol", "kont-rol")]
+    [InlineData("saat", "sa-at")]
+    [InlineData("ölçüm", "öl-çüm")]
+    [InlineData("İstanbul", "İs-tan-bul")]
+    [InlineData("Ankara,", "An-ka-ra,")]
+    [InlineData("anten", "an-ten")]
+    [InlineData("ab", "ab")]
+    [InlineData("SH2000", "SH2000")]
+    public void TurkishWordsBreakBetweenSyllables(string word, string expected)
+    {
+        var points = DocxHyphenation.Points(word);
+        var text = word;
+        for (var i = points.Count - 1; i >= 0; i--)
+        {
+            text = text.Insert(points[i], "-");
+        }
+
+        Assert.Equal(expected, text);
+    }
+
+    [Fact]
+    public void TurkishTextIsHyphenated()
+    {
+        const string Text = "Antenin geri dönüş kaybı ölçümleri, ağ analizörünün kalibrasyonlarından sonra yansımasız odada tekrarlanabilirlik kontrolleriyle birlikte yapılır; sonuçlar kabul formuna kaydedilir ve sorumlu mühendis tarafından imzalanır.";
+        string Lines(bool hyphenation)
+        {
+            var doc = new DocxDocument { Created = XlsxTestKit.FixedTime, Language = "tr-TR", Hyphenation = hyphenation };
+            doc.Look.BodyFont = "Trebuchet MS";
+            var paragraph = doc.AddParagraph(Text);
+            paragraph.Alignment = DocxAlignment.Justify;
+            paragraph.RightIndent = 11;
+            var path = Save(doc, hyphenation ? "heceleme.pdf" : "no-hyphens.pdf", keep: hyphenation);
+            using (var reader = Reader.Open(path))
+            {
+                return string.Join("\n", reader.GetPage(1).GetWords().GroupBy(w => Math.Round(w.BoundingBox.Bottom)).OrderByDescending(g => g.Key).Select(g => string.Join(" ", g.OrderBy(w => w.BoundingBox.Left).Select(w => w.Text))));
+            }
+        }
+
+        var with = Lines(true);
+        var without = Lines(false);
+        Assert.DoesNotContain("-\n", without);
+        Assert.Contains("-\n", with);
+        Assert.Equal(Text.Replace(" ", string.Empty), with.Replace("-\n", string.Empty).Replace("\n", string.Empty).Replace(" ", string.Empty));
+        Assert.True(with.Split('\n').Length <= without.Split('\n').Length);
+
+        var word = new DocxDocument { Hyphenation = true, Language = "tr-TR" };
+        word.AddParagraph(Text);
+        var docx = Path.Combine(XlsxTestKit.NewFolder(), "hyphenation.docx");
+        word.Save(docx);
+        Assert.Empty(DocxTestKit.Validate(docx));
+        using (var document = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(docx, false))
+        {
+            Assert.NotNull(document.MainDocumentPart!.DocumentSettingsPart!.Settings!.GetFirstChild<DocumentFormat.OpenXml.Wordprocessing.AutoHyphenation>());
+        }
+    }
+
     [Fact]
     public void PdfsOfWordDocumentsAreReproducible()
     {

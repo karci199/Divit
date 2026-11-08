@@ -495,6 +495,7 @@ public sealed partial class DocxDocument
         }
 
         Val(w, "defaultTabStop", "708");
+        if (Hyphenation) { w.WriteElementString("autoHyphenation", Main, null); }
         if (parts.EvenPages) { w.WriteElementString("evenAndOddHeaders", Main, null); }
         Val(w, "characterSpacingControl", "doNotCompress");
         if (parts.UpdateFields) { Val(w, "updateFields", "true"); }
