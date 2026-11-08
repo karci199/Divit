@@ -63,6 +63,7 @@ public sealed class PdfFont
     {
         long units = 0;
         var advances = Face.Advances;
+        ushort previous = 0;
         for (var i = 0; i < text.Length; i++)
         {
             int c = text[i];
@@ -72,7 +73,9 @@ public sealed class PdfFont
                 i++;
             }
 
-            units += advances[Face.Glyph(c)];
+            var glyph = Face.Glyph(c);
+            units += advances[glyph] + Kern(previous, glyph);
+            previous = glyph;
         }
 
         return units * size / Face.UnitsPerEm;
@@ -84,6 +87,22 @@ public sealed class PdfFont
     /// <param name="c">The character.</param>
     /// <returns><c>true</c> when the font can draw it.</returns>
     public bool Has(char c) => Face.Glyph(c) != 0;
+
+    /// <summary>
+    /// The kerning between two glyphs in font units; none next to a space, so words keep the widths they were
+    /// measured with when a line joins them.
+    /// </summary>
+    internal int Kern(ushort left, ushort right)
+    {
+        if (left == 0 || right == 0 || left == Space || right == Space)
+        {
+            return 0;
+        }
+
+        return Face.Kerning.Pair(left, right);
+    }
+
+    private ushort Space => Face.Glyph(' ');
 
     internal TrueTypeFont Face { get; }
 

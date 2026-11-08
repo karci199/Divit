@@ -322,6 +322,37 @@ public class PdfDocumentTests
     }
 
     [Fact]
+    public void PairsAreKerned()
+    {
+        var doc = NewDocument();
+        var font = doc.AddFont("Trebuchet MS");
+        var face = font.Face;
+        Assert.True(font.Measure("AV", 100) < font.Measure("A", 100) + font.Measure("V", 100) - 1, "AV is kerned");
+        Assert.True(font.Measure("To", 100) < font.Measure("T", 100) + font.Measure("o", 100) - 1, "To is kerned");
+        Assert.Equal(font.Measure("A V", 100), font.Measure("A", 100) + font.Measure(" ", 100) + font.Measure("V", 100), 6);
+
+        // The old kern table, read when a font has no GPOS kerning, knows the same pair.
+        var old = FontKerning.Read(face, gpos: false);
+        Assert.True(old.Any);
+        Assert.True(old.Pair(face.Glyph('A'), face.Glyph('V')) < 0);
+        Assert.True(face.Kerning.Pair(face.Glyph('A'), face.Glyph('V')) < 0);
+
+        var page = doc.AddPage();
+        page.DrawText("AVATAR Today", 50, 100, font, 40);
+        Assert.Contains("] TJ", PdfTestKit.Content(page));
+        var path = Save(doc, "kerning.pdf");
+        using (var reader = Reader.Open(path))
+        {
+            var letters = reader.GetPage(1).Letters.ToList();
+            var a = letters[0];
+            var v = letters[1];
+            Assert.Equal("A", a.Value);
+            Assert.Equal(50 + font.Measure("AV", 40) - font.Measure("V", 40), v.StartBaseLine.X, 1);
+            Assert.Equal(50 + font.Measure("AVATAR Today", 40), letters.Last().EndBaseLine.X, 1);
+        }
+    }
+
+    [Fact]
     public void DocumentsAreReproducible()
     {
         var folder = XlsxTestKit.NewFolder();

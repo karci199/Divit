@@ -157,9 +157,9 @@ public sealed class PdfPage
         var left = align == PdfAlign.Left ? x : x - (font.Measure(text, size) * (align == PdfAlign.Center ? 0.5 : 1));
         Fonts.Add(font.Resource);
         Fill(color);
-        var b = _content.Append("BT /").Append(font.Resource).Append(' ').Number(size).Append("Tf ").Number(left).Number(Height - y).Append("Td <");
-        Glyphs(b, text, font);
-        b.Append("> Tj ET\n");
+        var b = _content.Append("BT /").Append(font.Resource).Append(' ').Number(size).Append("Tf ").Number(left).Number(Height - y).Append("Td ");
+        Show(b, text, font);
+        b.Append(" ET\n");
         return this;
     }
 
@@ -356,9 +356,9 @@ public sealed class PdfPage
         var radians = degrees * Math.PI / 180;
         double cos = Math.Cos(radians), sin = Math.Sin(radians);
         var b = _content.Append("BT /").Append(font.Resource).Append(' ').Number(size).Append("Tf ").Number(cos).Number(sin).Number(-sin).Number(cos)
-            .Number(x).Number(Height - y).Append("Tm <");
-        Glyphs(b, text, font);
-        b.Append("> Tj ET\n");
+            .Number(x).Number(Height - y).Append("Tm ");
+        Show(b, text, font);
+        b.Append(" ET\n");
     }
 
     /// <summary>
@@ -367,12 +367,20 @@ public sealed class PdfPage
     internal List<PdfLink> Links { get; } = new List<PdfLink>();
 
     /// <summary>
-    /// Writes the glyph ids of a text as hex and records them as used.
+    /// Shows a text: its glyph ids as hex, recorded as used; with kerning an array that moves the glyphs of kerned
+    /// pairs together (<c>TJ</c>), else one string (<c>Tj</c>).
     /// </summary>
-    private static void Glyphs(PdfBuffer b, string text, PdfFont font)
+#if NET
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+#endif
+    private static void Show(PdfBuffer b, string text, PdfFont font)
     {
         var face = font.Face;
         var used = font.Used;
+        var kerns = face.Kerning.Any;
+        var scale = 1000.0 / face.UnitsPerEm;
+        b.Append(kerns ? "[<" : "<");
+        ushort previous = 0;
         for (var i = 0; i < text.Length; i++)
         {
             int c = text[i];
@@ -388,8 +396,21 @@ public sealed class PdfPage
                 used[glyph] = c;
             }
 
+            if (kerns && previous != 0)
+            {
+                var kern = font.Kern(previous, glyph);
+                if (kern != 0)
+                {
+                    // A positive number moves the next glyph left: the opposite sign of the adjustment.
+                    b.Append("> ").Number(-kern * scale).Append('<');
+                }
+            }
+
             b.Hex4(glyph);
+            previous = glyph;
         }
+
+        b.Append(kerns ? ">] TJ" : "> Tj");
     }
 
     private PdfBuffer Rectangle(double x, double y, double width, double height) =>

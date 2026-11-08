@@ -157,6 +157,13 @@ internal sealed class TrueTypeFont
     /// <summary>
     /// The glyph of a character (a code point), 0 for the missing glyph.
     /// </summary>
+    /// <summary>
+    /// The kerning of the font, read when first needed.
+    /// </summary>
+    public FontKerning Kerning => _kerning ??= FontKerning.Read(this);
+
+    private FontKerning? _kerning;
+
     public ushort Glyph(int codePoint) =>
         codePoint < 65536 ? _glyphs[codePoint] : _supplementary.TryGetValue(codePoint, out var glyph) ? glyph : (ushort)0;
 
