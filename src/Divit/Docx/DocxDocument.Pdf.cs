@@ -803,7 +803,7 @@ public sealed partial class DocxDocument
             var baseline = y + line.Baseline;
             var text = new StringBuilder();
             Atom? run = null;
-            var runX = 0.0;
+            double runX = 0, runEnd = 0;
 
             void Flush()
             {
@@ -826,7 +826,7 @@ public sealed partial class DocxDocument
                     }
 
                     var joins = run != null && ReferenceEquals(run.Font, atom.Font) && run.Size == atom.Size && run.Color == atom.Color && run.Rise == atom.Rise
-                        && Math.Abs(runX + run.Font!.Measure(text.ToString(), run.Size) - atom.X) < 0.01;
+                        && Math.Abs(runEnd - atom.X) < 0.01;
                     if (!joins)
                     {
                         Flush();
@@ -835,6 +835,7 @@ public sealed partial class DocxDocument
                     }
 
                     text.Append(atom.Text);
+                    runEnd = atom.X + atom.Width;
                     if (atom.Underline || atom.Strike)
                     {
                         var thickness = Math.Max(0.4, atom.Size * 0.06);
@@ -844,7 +845,22 @@ public sealed partial class DocxDocument
 
                     if (atom.Url != null || atom.Target != null)
                     {
-                        ctx.Links.Add((page, x + atom.X, baseline - atom.Ascent, atom.Width, atom.Ascent + atom.Descent, atom.Url, atom.Target));
+                        // One area per link and line: the words of a link, and a contents entry with its page.
+                        var top = baseline - atom.Ascent;
+                        var links = ctx.Links;
+                        var last = links.Count - 1;
+                        if (last >= 0 && links[last].Page == page && links[last].Url == atom.Url && links[last].Target == atom.Target
+                            && Math.Abs(links[last].Y + links[last].Height - (top + atom.Ascent + atom.Descent)) < 0.5)
+                        {
+                            var merged = links[last];
+                            var right = Math.Max(merged.X + merged.Width, x + atom.X + atom.Width);
+                            var upper = Math.Min(merged.Y, top);
+                            links[last] = (page, merged.X, upper, right - merged.X, merged.Y + merged.Height - upper, atom.Url, atom.Target);
+                        }
+                        else
+                        {
+                            links.Add((page, x + atom.X, top, atom.Width, atom.Ascent + atom.Descent, atom.Url, atom.Target));
+                        }
                     }
 
                     continue;
