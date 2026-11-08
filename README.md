@@ -16,6 +16,15 @@ it needs neither Office nor any NuGet package at run time.
 
 Divit writes documents; it does not read or edit existing ones. Build the document again from your own data instead.
 
+## Install
+
+```bash
+dotnet add package Divit
+```
+
+The package is built by `dotnet pack src/Divit/Divit.csproj -c Release` into `artifacts/packages`; GitHub Actions builds,
+tests and packs every push to `main`.
+
 ## Targets
 
 - `netstandard2.0`: .NET Framework 4.8 and every newer runtime
@@ -200,3 +209,7 @@ Left out until a use needs them:
   than .NET does (same value).
 - **Auto-fit column widths**: measuring text needs font metrics.
 - **Computing formulas**: Excel computes them on opening; only needed for readers that never do.
+
+## License
+
+MIT: see [LICENSE](LICENSE).

@@ -5,11 +5,35 @@
     <RootNamespace>Divit</RootNamespace>
     <AssemblyName>Divit</AssemblyName>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <NeutralLanguage>en</NeutralLanguage>
     <IsTrimmable Condition="'$(TargetFramework)' == 'net10.0'">true</IsTrimmable>
     <IsAotCompatible Condition="'$(TargetFramework)' == 'net10.0'">true</IsAotCompatible>
   </PropertyGroup>
+
+  <!-- The NuGet package: dotnet pack -c Release writes it to artifacts/packages. -->
+  <PropertyGroup>
+    <PackageId>Divit</PackageId>
+    <Authors>katan</Authors>
+    <Description>Writes Excel (.xlsx), Word (.docx) and PDF files without Office and without dependencies: styles, formulas, tables, pivot tables and charts in Excel; sections, headings, contents, tables, images, lists, footnotes, equations and bibliographies in Word; Word documents and Excel workbooks laid out as PDF with embedded fonts, charts and Turkish hyphenation. For .NET Framework 4.8 and .NET 10.</Description>
+    <PackageTags>excel;xlsx;word;docx;pdf;openxml;office;report;chart;spreadsheet;document</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/karci199/Divit</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/karci199/Divit</PackageProjectUrl>
+    <Copyright>Copyright (c) 2026 katan</Copyright>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)..\..\artifacts\packages</PackageOutputPath>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- The tests check the internal package layer directly. -->
     <InternalsVisibleTo Include="Divit.Tests" />

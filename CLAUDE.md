@@ -37,4 +37,5 @@ by part (`.Package`, `.Sheet`, `.Styles`, `.Strings`, `.Tables`, `.Pivot`, `.Str
 ```bash
 dotnet build Divit.sln
 dotnet test Divit.sln
+dotnet pack src/Divit/Divit.csproj -c Release
 ```
