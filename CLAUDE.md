@@ -7,7 +7,7 @@ document properties, theme part, image format and size, SHA-512 password hash, a
 `src/Divit/Xlsx` and `src/Divit/Docx` build on it; `src/Divit/Charts` builds charts from values over the Excel chart
 model for Word and PDF. `src/Divit/Pdf` has its own object writer, TrueType reader and
 subsetter, system font index and image decoding, and shares the atomic save. `XlsxWorkbook` is split into partial files
-by part (`.Package`, `.Sheet`, `.Styles`, `.Strings`, `.Tables`, `.Pivot`, `.Stream`), `DocxDocument` likewise
+by part (`.Package`, `.Sheet`, `.Styles`, `.Strings`, `.Tables`, `.Pivot`, `.Stream`, `.Pdf`), `DocxDocument` likewise
 (`.Body`, `.Styles`, `.Tables`, `.Marks`, `.Math`, `.Sources`, `.Stream`, `.Pdf`), `PdfDocument` too (`.Write`).
 
 ## Rules
