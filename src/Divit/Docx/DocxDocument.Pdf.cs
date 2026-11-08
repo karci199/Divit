@@ -315,6 +315,12 @@ public sealed partial class DocxDocument
                     continue;
                 }
 
+                if (run.Chart != null)
+                {
+                    atoms.Add(new Atom { Kind = AtomKind.Chart, Chart = run.Chart, Width = run.ImageWidth / 12700.0, Ascent = run.ImageHeight / 12700.0 });
+                    continue;
+                }
+
                 if (run.Image != null)
                 {
                     atoms.Add(new Atom { Kind = AtomKind.Image, Image = run.Image, Width = run.ImageWidth / 12700.0, Ascent = run.ImageHeight / 12700.0 });
@@ -730,7 +736,7 @@ public sealed partial class DocxDocument
                     descent = Math.Max(descent, atom.Descent);
                     height = Math.Max(height, atom.Font!.LineHeight(atom.Size + (atom.Rise != 0 ? atom.Size * 0.5 : 0)) * s.Line);
                 }
-                else if (atom.Kind == AtomKind.Image || atom.Kind == AtomKind.Box)
+                else if (atom.Kind == AtomKind.Image || atom.Kind == AtomKind.Box || atom.Kind == AtomKind.Chart)
                 {
                     ascent = Math.Max(ascent, atom.Ascent);
                 }
@@ -876,6 +882,10 @@ public sealed partial class DocxDocument
                 else if (atom.Kind == AtomKind.Image)
                 {
                     page.DrawImage(atom.Image!, x + atom.X, baseline - atom.Ascent, atom.Width, atom.Ascent);
+                }
+                else if (atom.Kind == AtomKind.Chart)
+                {
+                    page.DrawChart(atom.Chart!, x + atom.X, baseline - atom.Ascent, atom.Width, atom.Ascent, Look.BodyFont);
                 }
                 else if (atom.Kind == AtomKind.Box)
                 {
@@ -1450,6 +1460,7 @@ public sealed partial class DocxDocument
         PageBreak,
         Image,
         Box,
+        Chart,
     }
 
     private sealed class Atom
@@ -1468,6 +1479,7 @@ public sealed partial class DocxDocument
         public double Descent;
         public double X;
         public byte[]? Image;
+        public Divit.Charts.Chart? Chart;
         public bool Checked;
         public string? Url;
         public DocxParagraph? Target;

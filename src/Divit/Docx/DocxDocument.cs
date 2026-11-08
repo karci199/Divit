@@ -401,6 +401,22 @@ public sealed partial class DocxDocument
                 package.Relationships("customXml/_rels/item1.xml.rels", item);
             }
 
+            for (var i = 0; i < parts.Charts.Count; i++)
+            {
+                // The chart part, and the workbook of its values that Word opens to edit them.
+                var (chart, book) = parts.Charts[i];
+                var number = (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                package.XmlPart("word/charts/chart" + number + ".xml", w => Divit.Xlsx.XlsxChartWriter.WriteChart(w, chart, Look.BodyFont, "rId1"));
+                var embedded = new RelationshipList();
+                embedded.Add(RelType + "package", "../embeddings/Microsoft_Excel_Worksheet" + number + ".xlsx");
+                package.Relationships("word/charts/_rels/chart" + number + ".xml.rels", embedded);
+                using (var bytes = new System.IO.MemoryStream())
+                {
+                    book.Write(bytes);
+                    package.BinaryPart("word/embeddings/Microsoft_Excel_Worksheet" + number + ".xlsx", bytes.ToArray(), false);
+                }
+            }
+
             package.XmlPart("word/settings.xml", w => WriteSettings(w, parts));
             package.XmlPart("word/theme/theme1.xml", w => ThemeWriter.Write(w, Theme, Look.BodyFont));
             package.Relationships("word/_rels/document.xml.rels", parts.Relationships);
@@ -443,6 +459,16 @@ public sealed partial class DocxDocument
             if (_sources.Count > 0)
             {
                 package.Override("/customXml/itemProps1.xml", "application/vnd.openxmlformats-officedocument.customXmlProperties+xml");
+            }
+
+            if (parts.Charts.Count > 0)
+            {
+                package.Default("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            }
+
+            for (var i = 0; i < parts.Charts.Count; i++)
+            {
+                package.Override("/word/charts/chart" + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + ".xml", ContentTypes.Chart);
             }
 
             foreach (var part in parts.HeadersAndFooters)
@@ -660,6 +686,13 @@ public sealed partial class DocxDocument
                 parts.MediaTypes[run.ImageInfo.Extension] = run.ImageInfo.ContentType;
                 parts.ImageIds[run] = relationships.Add(RelationshipTypes.Image, "media/" + name);
             }
+            else if (run.Chart != null)
+            {
+                var number = parts.Charts.Count + 1;
+                var chart = run.Chart.Build((int)(run.ImageWidth / 9525), (int)(run.ImageHeight / 9525), out var book);
+                parts.Charts.Add((chart, book));
+                parts.ChartIds[run] = relationships.Add(RelType + "chart", "charts/chart" + number.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".xml");
+            }
             else if (run.LinkUrl != null)
             {
                 parts.LinkIds[run] = relationships.Add(RelationshipTypes.Hyperlink, run.LinkUrl, true);
@@ -747,6 +780,14 @@ public sealed partial class DocxDocument
         /// The relationship id of each web link, in the part that holds it.
         /// </summary>
         public Dictionary<DocxRun, string> LinkIds { get; } = new Dictionary<DocxRun, string>();
+
+        /// <summary>
+        /// The charts in order, each an Excel chart over the workbook embedded with it, and the relationship id of
+        /// each chart run in the part that holds it.
+        /// </summary>
+        public List<(Divit.Xlsx.XlsxChart Chart, Divit.Xlsx.XlsxWorkbook Book)> Charts { get; } = new List<(Divit.Xlsx.XlsxChart, Divit.Xlsx.XlsxWorkbook)>();
+
+        public Dictionary<DocxRun, string> ChartIds { get; } = new Dictionary<DocxRun, string>();
 
         /// <summary>
         /// The numbering id of each list; 1 is the heading outline.

@@ -262,6 +262,12 @@ public sealed partial class DocxDocument
             return;
         }
 
+        if (run.Chart != null)
+        {
+            WriteChart(w, run, scope);
+            return;
+        }
+
         var parts = scope.Parts;
         if (run.LinkUrl != null || run.LinkTarget != null)
         {

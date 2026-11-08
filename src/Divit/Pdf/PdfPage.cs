@@ -316,6 +316,49 @@ public sealed class PdfPage
     }
 
     /// <summary>
+    /// Draws a chart into a box: titles, axes, series, limits and legend, as lines, shapes and text.
+    /// </summary>
+    /// <param name="chart">The chart.</param>
+    /// <param name="x">Left edge.</param>
+    /// <param name="y">Top edge.</param>
+    /// <param name="width">Width.</param>
+    /// <param name="height">Height.</param>
+    /// <param name="font">Font family of the chart's text when its look names none.</param>
+    /// <returns>This page.</returns>
+    public PdfPage DrawChart(Divit.Charts.Chart chart, double x, double y, double width, double height, string font = "Calibri")
+    {
+        ChartPainter.Draw(this, (chart ?? throw new ArgumentNullException(nameof(chart))).Build(), x, y, width, height, font);
+        return this;
+    }
+
+    /// <summary>
+    /// Draws an Excel chart into a box, with the values of its sheet.
+    /// </summary>
+    internal void DrawChart(Divit.Xlsx.XlsxChart chart, double x, double y, double width, double height, string font) =>
+        ChartPainter.Draw(this, chart, x, y, width, height, font);
+
+    /// <summary>
+    /// Keeps what follows inside a rectangle until <see cref="PopClip"/>; the drawing state is saved with it.
+    /// </summary>
+    internal void PushClip(double x, double y, double width, double height)
+    {
+        _saved.Push((_fill, _stroke, _fillGiven, _strokeGiven, _lineWidth, _dash, _round));
+        _content.Append("q ");
+        Rectangle(x, y, width, height).Append("W n\n");
+    }
+
+    /// <summary>
+    /// Ends a clip, restoring the drawing state of its start.
+    /// </summary>
+    internal void PopClip()
+    {
+        _content.Append("Q\n");
+        (_fill, _stroke, _fillGiven, _strokeGiven, _lineWidth, _dash, _round) = _saved.Pop();
+    }
+
+    private readonly Stack<(string?, string?, string?, string?, double, PdfDash, bool)> _saved = new Stack<(string?, string?, string?, string?, double, PdfDash, bool)>();
+
+    /// <summary>
     /// Makes an area of the page a link to a web address: a click opens it.
     /// </summary>
     /// <param name="x">Left edge.</param>

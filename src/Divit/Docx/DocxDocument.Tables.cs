@@ -293,6 +293,53 @@ public sealed partial class DocxDocument
     }
 
     /// <summary>
+    /// A chart in the line: an inline frame whose graphic is the chart part, through the part's relationship.
+    /// </summary>
+    private static void WriteChart(XmlWriter w, DocxRun run, Scope scope)
+    {
+        const string ChartUri = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+        var id = ++scope.Parts.Drawings;
+        var cx = run.ImageWidth.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var cy = run.ImageHeight.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        w.WriteStartElement("r", Main);
+        w.WriteStartElement("drawing", Main);
+        w.WriteStartElement("wp", "inline", WordDrawingNs);
+        foreach (var side in new[] { "distT", "distB", "distL", "distR" })
+        {
+            w.WriteAttributeString(side, "0");
+        }
+
+        w.WriteStartElement("wp", "extent", WordDrawingNs);
+        w.WriteAttributeString("cx", cx);
+        w.WriteAttributeString("cy", cy);
+        w.WriteEndElement();
+        w.WriteStartElement("wp", "effectExtent", WordDrawingNs);
+        foreach (var side in new[] { "l", "t", "r", "b" })
+        {
+            w.WriteAttributeString(side, "0");
+        }
+
+        w.WriteEndElement();
+        w.WriteStartElement("wp", "docPr", WordDrawingNs);
+        w.WriteAttributeString("id", Int(id));
+        w.WriteAttributeString("name", "Chart " + Int(id));
+        if (run.Chart!.Title != null) { w.WriteAttributeString("descr", OfficeText.Clean(run.Chart.Title)); }
+        w.WriteEndElement();
+        w.WriteElementString("wp", "cNvGraphicFramePr", WordDrawingNs, string.Empty);
+        w.WriteStartElement("a", "graphic", DrawingNs);
+        w.WriteStartElement("a", "graphicData", DrawingNs);
+        w.WriteAttributeString("uri", ChartUri);
+        w.WriteStartElement("c", "chart", ChartUri);
+        w.WriteAttributeString("r", "id", RelNs, scope.Parts.ChartIds[run]);
+        w.WriteEndElement();
+        w.WriteEndElement();
+        w.WriteEndElement();
+        w.WriteEndElement();
+        w.WriteEndElement();
+        w.WriteEndElement();
+    }
+
+    /// <summary>
     /// The captions of the document in order, as the lists of figures and tables show them.
     /// </summary>
     private List<(DocxCaptionKind Kind, string Text)> Captions()

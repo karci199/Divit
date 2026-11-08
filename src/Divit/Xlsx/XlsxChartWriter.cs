@@ -175,7 +175,8 @@ internal static class XlsxChartWriter
     /// <param name="w">The writer.</param>
     /// <param name="chart">The chart.</param>
     /// <param name="defaultFont">The workbook font, used when the look names none.</param>
-    public static void WriteChart(XmlWriter w, XlsxChart chart, string defaultFont)
+    /// <param name="workbook">Relationship id of the embedded workbook of a chart in Word; none in Excel.</param>
+    public static void WriteChart(XmlWriter w, XlsxChart chart, string defaultFont, string? workbook = null)
     {
         var look = chart.Look;
         var font = look.FontName ?? defaultFont;
@@ -324,6 +325,15 @@ internal static class XlsxChartWriter
 
         w.WriteEndElement();
         TextProperties(w, font, look.TextSize, false, look.TextColor);
+        if (workbook != null)
+        {
+            // The workbook embedded with a chart in Word, where "Edit Data" opens it.
+            w.WriteStartElement("externalData", ChartNs);
+            w.WriteAttributeString("r", "id", RelNs, workbook);
+            Val(w, "autoUpdate", "0");
+            w.WriteEndElement();
+        }
+
         w.WriteEndElement();
     }
 

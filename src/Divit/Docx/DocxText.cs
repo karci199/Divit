@@ -388,6 +388,11 @@ internal sealed class DocxRun
     public DocxSource? Citation { get; set; }
 
     public string? CitedPages { get; set; }
+
+    /// <summary>
+    /// A chart in the line, its size in EMUs taken from <see cref="ImageWidth"/> and <see cref="ImageHeight"/>.
+    /// </summary>
+    public Divit.Charts.Chart? Chart { get; set; }
 }
 
 /// <summary>
@@ -805,6 +810,21 @@ public sealed class DocxParagraph : DocxBlock
     public DocxParagraph AddCitation(DocxSource source, string? pages = null)
     {
         _runs.Add(new DocxRun { Citation = source ?? throw new ArgumentNullException(nameof(source)), CitedPages = pages });
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a chart in the line, usually in a paragraph of its own: in Word a real chart whose data Word can
+    /// edit, in PDF drawn as lines and shapes.
+    /// </summary>
+    /// <param name="chart">The chart.</param>
+    /// <param name="width">Width in centimetres.</param>
+    /// <param name="height">Height in centimetres.</param>
+    /// <returns>This paragraph.</returns>
+    public DocxParagraph AddChart(Divit.Charts.Chart chart, double width = 16, double height = 9)
+    {
+        const double EmuPerCm = 360000;
+        _runs.Add(new DocxRun { Chart = chart ?? throw new ArgumentNullException(nameof(chart)), ImageWidth = (long)Math.Round(width * EmuPerCm), ImageHeight = (long)Math.Round(height * EmuPerCm) });
         return this;
     }
 

@@ -4,7 +4,8 @@ Dependency-free .NET library that writes Office documents (xlsx and docx) and PD
 (`netstandard2.0;net10.0`), `tests/Divit.Tests` the xUnit tests (`net48;net10.0`). See README.md for the roadmap.
 `src/Divit/Packaging` is the internal layer every format shares (zip and atomic save, content types, relationships,
 document properties, theme part, image format and size, SHA-512 password hash, allocation-free number formatting);
-`src/Divit/Xlsx` and `src/Divit/Docx` build on it. `src/Divit/Pdf` has its own object writer, TrueType reader and
+`src/Divit/Xlsx` and `src/Divit/Docx` build on it; `src/Divit/Charts` builds charts from values over the Excel chart
+model for Word and PDF. `src/Divit/Pdf` has its own object writer, TrueType reader and
 subsetter, system font index and image decoding, and shares the atomic save. `XlsxWorkbook` is split into partial files
 by part (`.Package`, `.Sheet`, `.Styles`, `.Strings`, `.Tables`, `.Pivot`, `.Stream`), `DocxDocument` likewise
 (`.Body`, `.Styles`, `.Tables`, `.Marks`, `.Math`, `.Sources`, `.Stream`, `.Pdf`), `PdfDocument` too (`.Write`).

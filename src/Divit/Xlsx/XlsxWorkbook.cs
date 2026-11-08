@@ -277,7 +277,12 @@ public sealed partial class XlsxWorkbook
     /// Writes the workbook; an existing target is overwritten.
     /// </summary>
     /// <param name="path">Target file.</param>
-    public void Save(string path)
+    public void Save(string path) => Divit.Packaging.AtomicFile.Save(path, Write);
+
+    /// <summary>
+    /// Writes the workbook into a stream: a file, or the bytes of a workbook embedded in a Word chart.
+    /// </summary>
+    internal void Write(System.IO.Stream stream)
     {
         if (_sheets.Count == 0)
         {
@@ -307,7 +312,7 @@ public sealed partial class XlsxWorkbook
         var plans = PlanSheets();
         var styles = new StyleTable(this);
         var strings = new StringTable(this);
-        OpcPackage.Save(path, Created, package =>
+        OpcPackage.Write(stream, Created, package =>
         {
             // Sheets first: the style and string tables fill while they are written.
             for (var i = 0; i < _sheets.Count; i++)
